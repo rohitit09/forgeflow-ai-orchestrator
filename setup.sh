@@ -13,12 +13,12 @@ done
 # ── .env (only created if missing) ───────────────────────────────────────────
 
 if [ ! -f "$ROOT/.env" ]; then
-  if [ -f "$ROOT/.env.example" ]; then
-    cp "$ROOT/.env.example" "$ROOT/.env"
-    echo "Created .env from .env.example — fill in your credentials"
+  if [ -f "$ROOT/env.example" ]; then
+    cp "$ROOT/env.example" "$ROOT/.env"
+    echo "Created .env from env.example — fill in your credentials"
   else
     touch "$ROOT/.env"
-    echo "Created empty .env — no .env.example found"
+    echo "Created empty .env — no env.example found"
   fi
 else
   echo "Skipped .env (already exists)"
