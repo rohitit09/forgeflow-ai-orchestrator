@@ -2,6 +2,8 @@
 
 An AI-powered bug fix and feature planning orchestrator built on FastAPI + tmux + xterm.js. It drives Claude Code (or OpenCode) through the full bug-fix pipeline autonomously — from fetching bugs to opening PRs — using `SKILL.md` files as the workflow engine.
 
+![ForgeFlow AI Orchestrator](dashboard.png)
+
 ## Architecture
 
 ```
@@ -30,13 +32,13 @@ Filesystem (bugs/, workspace/, repo-context/, plans/, reviews/)
 ### 1. Clone this repo
 
 ```bash
-git clone git@github.com:your-org/ai-orch.git
-cd ai-orch
+git clone git@github.com:rohitit09/forgeflow-ai-orchestrator.git
+cd forgeflow-ai-orchestrator
 ```
 
 ### 2. Run setup
 
-Creates runtime directories, copies `.env.example` → `.env`, scaffolds config files, and wires up symlinks:
+Creates runtime directories, copies `env.example` → `.env`, scaffolds config files, and wires up symlinks:
 
 ```bash
 ./setup.sh
