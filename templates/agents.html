@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Agents — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Agents{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Agents</h2>
+  <span class="page-subtitle">{{ agents | length }} configured</span>
+</div>
+
+{% if not agents %}
+<div class="empty-state">
+  <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><circle cx="32" cy="22" r="14"/><path d="M8 56c0-13.3 10.7-24 24-24s24 10.7 24 24"/></svg>
+  <p>No agents configured in <code>config/agents.json</code></p>
+</div>
+{% else %}
+<div class="agent-cards">
+  {% for agent in agents %}
+  {% set skip_keys = ['id', 'name', 'description', 'model', 'provider', 'capabilities', 'command'] %}
+  <div class="agent-card">
+
+    <div class="agent-card-header">
+      <div class="agent-avatar">{{ agent.name[0] | upper }}</div>
+      <div class="agent-card-title">
+        <span class="agent-name">{{ agent.name }}</span>
+        <span class="agent-id">{{ agent.id }}</span>
+      </div>
+      <span class="badge badge-agent">Active</span>
+    </div>
+
+    {% if agent.description %}
+    <div class="agent-desc">{{ agent.description }}</div>
+    {% endif %}
+
+    <div class="agent-card-body">
+      {% if agent.model %}
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Model</span>
+        <span class="repo-meta-value"><span class="branch-badge">{{ agent.model }}</span></span>
+      </div>
+      {% endif %}
+      {% if agent.provider %}
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Provider</span>
+        <span class="repo-meta-value">{{ agent.provider }}</span>
+      </div>
+      {% endif %}
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Command</span>
+        <span class="repo-meta-value mono">{{ agent.command }}</span>
+      </div>
+      {% if agent.capabilities %}
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Capabilities</span>
+        <span class="repo-meta-value">
+          {% for cap in agent.capabilities %}
+          <span class="cap-badge">{{ cap }}</span>
+          {% endfor %}
+        </span>
+      </div>
+      {% endif %}
+
+      {% for key, val in agent.items() %}
+        {% if key not in skip_keys and val is not none and val != '' %}
+        <div class="repo-meta-row">
+          <span class="repo-meta-label">{{ key | replace('_', ' ') | title }}</span>
+          <span class="repo-meta-value">
+            {% if val is mapping %}
+              {% for k2, v2 in val.items() %}<span class="dep-badge">{{ k2 }}: {{ v2 }}</span> {% endfor %}
+            {% elif val is iterable and val is not string %}
+              {% for item in val %}<span class="dep-badge">{{ item }}</span> {% endfor %}
+            {% else %}{{ val }}{% endif %}
+          </span>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block right_panel %}
+<div class="rp-empty">
+  <svg viewBox="0 0 64 64" width="40" height="40" opacity=".3"><circle cx="32" cy="22" r="14"/><path d="M8 56c0-13.3 10.7-24 24-24s24 10.7 24 24"/></svg>
+  <p>Agent configuration is managed in<br><code>config/agents.json</code></p>
+</div>
+{% endblock %}

@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Pipeline — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Pipeline{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Pipeline</h2>
+  <div class="page-header-stats">
+    {% set active_count = running | selectattr("session_status", "equalto", "ACTIVE") | list | length %}
+    {% set stale_count  = running | selectattr("session_status", "equalto", "STALE")  | list | length %}
+    <span class="stat-chip stat-chip-green">{{ active_count }} Active</span>
+    {% if stale_count %}
+    <span class="stat-chip stat-chip-yellow">{{ stale_count }} Stale</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if not running and not plans %}
+<div class="empty-state">
+  <svg viewBox="0 0 64 64" width="40" height="40" opacity=".25"><circle cx="16" cy="32" r="10"/><circle cx="48" cy="32" r="10"/><circle cx="32" cy="32" r="10"/></svg>
+  <p>No active sessions running.</p>
+  <a href="/bugs" class="btn btn-primary" style="margin-top:12px">Go to Bugs</a>
+</div>
+{% else %}
+
+{% if running %}
+<div class="pipeline-cards">
+  {% for item in running %}
+  {% set sd = item.bug.get("status_data") or {} if item.bug else {} %}
+  {% set st = item.session_status %}
+  <div class="pipeline-card {% if st == 'STALE' %}pipeline-card-stale{% endif %}">
+
+    <!-- header -->
+    <div class="pipeline-card-header">
+      <div class="pipeline-card-status">
+        <span class="ws-dot {% if st == 'ACTIVE' %}ws-dot-active{% elif st == 'STALE' %}ws-dot-stale{% endif %}" style="width:10px;height:10px;flex-shrink:0"></span>
+        <span class="pipeline-st-label {% if st == 'STALE' %}text-stale{% endif %}">{{ st }}</span>
+      </div>
+      <div class="pipeline-card-actions">
+        <a href="/sessions/{{ item.session_id }}" class="btn btn-sm btn-ghost">View</a>
+        <button class="btn btn-sm btn-ghost btn-danger" onclick="closeSession('{{ item.session_id }}')">Close</button>
+      </div>
+    </div>
+
+    <!-- card body — bug or code-review -->
+    {% if item.session_type == 'code-review' %}
+    <div class="pipeline-card-body">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#58a6ff;text-transform:uppercase;margin-bottom:4px">Code Review</div>
+      {% set pr_url = item.review.pr_url if item.review else '' %}
+      <div class="pipeline-bug-title" style="word-break:break-all;font-size:12px">
+        {% if pr_url %}<a href="{{ pr_url }}" target="_blank" style="color:var(--text-primary);text-decoration:none">{{ pr_url }}</a>{% else %}—{% endif %}
+      </div>
+      <div class="pipeline-bug-status" style="margin-top:6px">
+        <span class="bug-status-badge bug-status-running">REVIEWING</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="pipeline-card-body">
+      <div class="pipeline-bug-title">{{ item.bug.get("title") or item.bug_id if item.bug else item.bug_id }}</div>
+      <div class="pipeline-bug-id">{{ item.bug_id }}</div>
+
+      {% if sd.status %}
+      <div class="pipeline-bug-status">
+        <span class="bug-status-badge {% if sd.status == 'DONE' %}bug-status-done{% elif sd.status == 'FAILED' %}bug-status-failed{% else %}bug-status-running{% endif %}">
+          {{ sd.status }}
+        </span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- meta row -->
+    <div class="pipeline-card-meta">
+      <div class="pipeline-meta-item">
+        <span class="pipeline-meta-label">Agent</span>
+        <span class="pipeline-meta-val">{{ item.agent or '—' }}</span>
+      </div>
+      <div class="pipeline-meta-item">
+        <span class="pipeline-meta-label">Repo</span>
+        <span class="pipeline-meta-val">{{ item.repository or '—' }}</span>
+      </div>
+      <div class="pipeline-meta-item">
+        <span class="pipeline-meta-label">Session</span>
+        <span class="pipeline-meta-val"><a href="/sessions/{{ item.session_id }}" class="sess-link">{{ item.session_id[:12] }}…</a></span>
+      </div>
+    </div>
+
+    <!-- Jira / PR links -->
+    {% if sd.jira_ticket or sd.pr_url %}
+    <div class="pipeline-card-links">
+      {% if sd.jira_ticket %}
+      <a href="{{ (jira_base_url + '/browse/' + sd.jira_ticket) if jira_base_url else '#' }}" target="_blank" class="bug-link-pill bug-link-jira">
+        <svg viewBox="0 0 16 16" width="11" height="11" style="margin-right:3px;flex-shrink:0"><rect x="1" y="1" width="14" height="14" rx="2"/><path d="M5 8l3 3 3-3M8 5v6" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+        {{ sd.jira_ticket }}
+      </a>
+      {% endif %}
+      {% if sd.pr_url %}
+      <a href="{{ sd.pr_url }}" target="_blank" class="bug-link-pill bug-link-pr">
+        <svg viewBox="0 0 16 16" width="11" height="11" style="margin-right:3px;flex-shrink:0"><circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="4" r="2"/><path d="M4 6v4M6 4h4M10 6l-2 3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+        PR ↗
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Plans ── -->
+{% if plans %}
+<div class="section-header" style="margin-top:{% if running %}32px{% else %}0{% endif %}">
+  <h2 class="section-title">Plans <span class="count-badge">{{ plans | length }}</span></h2>
+  <a href="/plans" class="link-small">View all plans ↗</a>
+</div>
+
+<div class="pipeline-cards" style="margin-top:12px">
+  {% for plan in plans %}
+  {% set st = plan.status or 'DRAFT' %}
+  {% set sess = plan.active_session %}
+  {% set is_running = sess and sess.session_status == 'ACTIVE' %}
+  {% set is_stale   = sess and sess.session_status == 'STALE' %}
+  <div class="pipeline-card {% if is_stale %}pipeline-card-stale{% endif %}">
+
+    <!-- header -->
+    <div class="pipeline-card-header">
+      <div class="pipeline-card-status">
+        {% if is_running or is_stale %}
+        <span class="ws-dot {% if is_running %}ws-dot-active{% else %}ws-dot-stale{% endif %}" style="width:10px;height:10px;flex-shrink:0"></span>
+        <span class="pipeline-st-label {% if is_stale %}text-stale{% endif %}">{{ sess.session_status }}</span>
+        {% else %}
+        <span style="width:10px;height:10px;border-radius:50%;background:var(--border);flex-shrink:0;display:inline-block"></span>
+        <span class="pipeline-st-label" style="color:var(--text-muted)">QUEUED</span>
+        {% endif %}
+      </div>
+      <div class="pipeline-card-actions">
+        {% if sess %}
+        <a href="/sessions/{{ sess.session_id }}" class="btn btn-sm btn-ghost">View Session</a>
+        {% elif st == 'PARTIAL' %}
+        <a href="/plans" class="btn btn-sm btn-primary">Resume Plan</a>
+        {% else %}
+        <a href="/plans" class="btn btn-sm btn-ghost">Execute</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- card body -->
+    <div class="pipeline-card-body">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--purple-light);text-transform:uppercase;margin-bottom:4px">Plan</div>
+      <div class="pipeline-bug-title">{{ plan.name or plan.plan_id }}</div>
+      <div class="pipeline-bug-id">{{ plan.plan_id }}</div>
+      <div class="pipeline-bug-status" style="margin-top:6px">
+        {% set display_st = sess.session_status if (is_running or is_stale) else st %}
+        <span class="bug-status-badge {% if is_running %}bug-status-running{% elif is_stale %}bug-status-running{% elif st == 'FAILED' %}bug-status-failed{% elif st in ['PARTIAL','APPROVED'] %}bug-status-running{% endif %}">
+          {{ display_st }}
+        </span>
+      </div>
+    </div>
+
+    <!-- meta row -->
+    <div class="pipeline-card-meta">
+      <div class="pipeline-meta-item">
+        <span class="pipeline-meta-label">Tasks</span>
+        <span class="pipeline-meta-val">{{ plan.task_count or '—' }}</span>
+      </div>
+      <div class="pipeline-meta-item">
+        <span class="pipeline-meta-label">Repos</span>
+        <span class="pipeline-meta-val">{{ plan.repos | length if plan.repos else '—' }}</span>
+      </div>
+      {% if sess %}
+      <div class="pipeline-meta-item">
+        <span class="pipeline-meta-label">Session</span>
+        <span class="pipeline-meta-val"><a href="/sessions/{{ sess.session_id }}" class="sess-link">{{ sess.session_id[:12] }}…</a></span>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block right_panel %}
+<div class="rp-empty">
+  <svg viewBox="0 0 64 64" width="40" height="40" opacity=".3"><circle cx="16" cy="32" r="10"/><circle cx="48" cy="32" r="10"/><circle cx="32" cy="32" r="10"/></svg>
+  <p>Click <strong>View</strong> on a running bug<br>to open its terminal session.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function closeSession(sessionId) { closeSessionWithConfirm(sessionId); }
+</script>
+{% endblock %}

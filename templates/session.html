@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}{{ session.session_id }} — AI Orchestrator{% endblock %}
+{% block breadcrumb %}
+  <a href="/" class="bc-link">Dashboard</a>
+  <span class="bc-sep">/</span>
+  Sessions
+  <span class="bc-sep">/</span>
+  {{ session.session_id }}
+{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+{% endblock %}
+
+{% block content %}
+<div class="session-layout">
+
+  <!-- ── Info Bar ── -->
+  <div class="session-info-bar">
+    <div class="sib-group">
+      <span class="sib-label">Session</span>
+      <span class="sib-val mono">{{ session.session_id }}</span>
+    </div>
+    <div class="sib-group">
+      <span class="sib-label">Repository</span>
+      <span class="sib-val">{{ session.repository }}</span>
+    </div>
+    <div class="sib-group">
+      <span class="sib-label">Agent</span>
+      <span class="sib-val">{% if session.agent == 'claude' %}🤖 Claude Code{% else %}⚡ OpenCode{% endif %}</span>
+    </div>
+    {% if session.bug_id %}
+    <div class="sib-group">
+      <span class="sib-label">Bug</span>
+      <span class="sib-val mono">{{ session.bug_id }}</span>
+    </div>
+    {% endif %}
+    <div class="sib-group">
+      <span class="sib-label">Session Status</span>
+      <span class="sib-val">
+        {% if session.session_status == 'ACTIVE' %}
+        <span class="status-pill pill-green">● Active</span>
+        {% elif session.session_status == 'INTERRUPTED' %}
+        <span class="status-pill pill-orange">⚠ Interrupted</span>
+        {% elif session.session_status == 'COMPLETED' %}
+        <span class="status-pill pill-gray">✓ Completed</span>
+        {% elif session.session_status == 'STALE' %}
+        <span class="status-pill pill-yellow">⏱ Stale</span>
+        {% elif session.session_status == 'DISCONNECTED' %}
+        <span class="status-pill pill-red">✗ Disconnected</span>
+        {% else %}
+        <span class="status-pill pill-gray">{{ session.session_status }}</span>
+        {% endif %}
+      </span>
+    </div>
+    {% if session.bug_data %}
+    <div class="sib-group">
+      <span class="sib-label">Bug Status</span>
+      <span class="sib-val">
+        {% set bs = session.bug_data.status %}
+        {% if bs == 'DONE' %}<span class="status-pill pill-green">✓ Done</span>
+        {% elif bs == 'FAILED' %}<span class="status-pill pill-red">✗ Failed</span>
+        {% elif bs == 'BLOCKED' %}<span class="status-pill pill-orange">⊘ Blocked</span>
+        {% elif bs in ['PR_CREATING','PR_CREATED','JIRA_UPDATING','JIRA_UPDATED'] %}<span class="status-pill pill-purple">↑ {{ bs | replace('_',' ') | title }}</span>
+        {% elif bs in ['TESTING','TESTED'] %}<span class="status-pill pill-blue">⚙ {{ bs | title }}</span>
+        {% elif bs in ['IMPLEMENTING','IMPLEMENTED'] %}<span class="status-pill pill-purple">✎ {{ bs | title }}</span>
+        {% elif bs in ['PLANNING','PLANNED','DIAGNOSING','DIAGNOSED'] %}<span class="status-pill pill-blue">◈ {{ bs | title }}</span>
+        {% elif bs in ['BRANCHING','BRANCHED','WORKTREE_READY'] %}<span class="status-pill pill-blue">⎇ {{ bs | replace('_',' ') | title }}</span>
+        {% elif bs in ['SYNCING','SYNCED','JIRA_CREATING','JIRA_CREATED','QUEUED'] %}<span class="status-pill pill-yellow">↻ {{ bs | replace('_',' ') | title }}</span>
+        {% elif bs == 'FETCHED' %}<span class="status-pill pill-gray">● Fetched</span>
+        {% else %}<span class="status-pill pill-gray">{{ bs }}</span>{% endif %}
+      </span>
+    </div>
+    {% endif %}
+    <div class="sib-group">
+      <span class="sib-label">tmux</span>
+      <span class="sib-val">
+        {% if session.tmux_exists %}
+        <span class="status-pill pill-green">● EXISTS</span>
+        {% else %}
+        <span class="status-pill pill-red">✗ MISSING</span>
+        {% endif %}
+      </span>
+    </div>
+  </div>
+
+  <!-- ── Interrupted Banner ── -->
+  {% if session.session_status == 'INTERRUPTED' %}
+  <div class="interrupted-banner">
+    <div class="ib-icon">⚠</div>
+    <div class="ib-text">
+      <strong>Session Interrupted</strong> — tmux session is gone but the bug may not be complete.
+      {% if session.bug_data %} Last step: <strong>{{ session.bug_data.current_step or session.bug_data.status }}</strong>{% endif %}
+    </div>
+    <div class="ib-actions">
+      <button class="btn btn-warning" onclick="doResume(this)">Resume Session</button>
+      <button class="btn btn-ghost" onclick="doNewSession(this)">New Session</button>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Terminal ── -->
+  <div class="terminal-section">
+    <div class="terminal-header">
+      <div class="th-dots">
+        <span class="th-dot th-red"></span>
+        <span class="th-dot th-yellow"></span>
+        <span class="th-dot th-green"></span>
+      </div>
+      <span class="th-title">{{ session.session_id }}</span>
+      <div class="th-actions">
+        <button class="btn btn-xs btn-ghost" id="reconnectBtn" onclick="reconnectTerminal()">Reconnect</button>
+        <a href="/" class="btn btn-xs btn-ghost" title="Go back to dashboard — session keeps running">← Dashboard</a>
+      </div>
+    </div>
+    <div id="terminal-container">
+      {% if not session.tmux_exists %}
+      <div class="terminal-offline">
+        <div class="to-icon">⬚</div>
+        {% if session.session_status == 'DISCONNECTED' %}
+        <div class="to-msg">Session disconnected — tmux session is gone</div>
+        <a href="/" class="btn btn-primary">Go to Dashboard</a>
+        {% elif session.session_status == 'INTERRUPTED' %}
+        <div class="to-msg">Terminal offline — tmux session not found</div>
+        <button class="btn btn-warning" onclick="doResume(this)">Resume to reconnect</button>
+        {% else %}
+        <div class="to-msg">Terminal offline — tmux session not found</div>
+        {% endif %}
+      </div>
+      {% else %}
+      <div id="term"></div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block right_panel %}
+<div class="rp-session">
+
+  <!-- Bug Progress -->
+  {% if session.bug_data %}
+  {% set bd = session.bug_data %}
+  {% set cur = bd.status %}
+  <div class="rp-section">
+    <div class="rp-title">Bug Pipeline</div>
+    {% set stages = [
+      ('Fetch',     ['FETCHED','QUEUED']),
+      ('Sync',      ['SYNCING','SYNCED']),
+      ('Jira',      ['JIRA_CREATING','JIRA_CREATED']),
+      ('Branch',    ['BRANCHING','BRANCHED']),
+      ('Worktree',  ['WORKTREE_READY']),
+      ('Diagnose',  ['DIAGNOSING','DIAGNOSED']),
+      ('Plan',      ['PLANNING','PLANNED']),
+      ('Implement', ['IMPLEMENTING','IMPLEMENTED']),
+      ('Test',      ['TESTING','TESTED']),
+      ('PR',        ['PR_CREATING','PR_CREATED']),
+      ('Jira Upd',  ['JIRA_UPDATING','JIRA_UPDATED']),
+      ('Done',      ['DONE']),
+    ] %}
+    {% set cur_seg = namespace(idx=0) %}
+    {% for label, statuses in stages %}{% if cur in statuses %}{% set cur_seg.idx = loop.index0 %}{% endif %}{% endfor %}
+    <div class="progress-timeline">
+      {% for label, statuses in stages %}
+      {% set idx = loop.index0 %}
+      {% if cur == 'FAILED' %}
+        <div class="pt-item fail">
+      {% elif cur == 'BLOCKED' and idx == cur_seg.idx %}
+        <div class="pt-item blocked">
+      {% elif idx < cur_seg.idx %}
+        <div class="pt-item done">
+      {% elif idx == cur_seg.idx %}
+        <div class="pt-item current">
+      {% else %}
+        <div class="pt-item">
+      {% endif %}
+        <div class="pt-dot-wrap">
+          <div class="pt-dot">
+            {% if cur == 'FAILED' %}✗
+            {% elif cur == 'BLOCKED' and idx == cur_seg.idx %}⊘
+            {% elif idx < cur_seg.idx %}✓
+            {% elif idx == cur_seg.idx %}→
+            {% else %}○{% endif %}
+          </div>
+          {% if not loop.last %}<div class="pt-line"></div>{% endif %}
+        </div>
+        <div class="pt-label">{{ label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="rp-field" style="margin-top:12px">
+      <span class="rp-label">Status</span>
+      <span class="rp-val">{{ cur | replace('_',' ') }}</span>
+    </div>
+    {% if bd.current_step %}
+    <div class="rp-field">
+      <span class="rp-label">Current Step</span>
+      <span class="rp-val">{{ bd.current_step }}</span>
+    </div>
+    {% endif %}
+    {% if bd.next_step %}
+    <div class="rp-field">
+      <span class="rp-label">Next Step</span>
+      <span class="rp-val">{{ bd.next_step }}</span>
+    </div>
+    {% endif %}
+    {% if bd.jira_ticket %}
+    <div class="rp-field">
+      <span class="rp-label">Jira Ticket</span>
+      <span class="rp-val">{{ bd.jira_ticket }}</span>
+    </div>
+    {% endif %}
+    {% if bd.branch %}
+    <div class="rp-field">
+      <span class="rp-label">Branch</span>
+      <span class="rp-val" style="font-family:monospace;font-size:11px">{{ bd.branch }}</span>
+    </div>
+    {% endif %}
+    {% if bd.pr_url %}
+    <div class="rp-field">
+      <span class="rp-label">Pull Request</span>
+      <span class="rp-val"><a href="{{ bd.pr_url }}" target="_blank" class="link-small">View PR ↗</a></span>
+    </div>
+    {% endif %}
+    {% if bd.last_heartbeat %}
+    <div class="rp-field">
+      <span class="rp-label">Last Heartbeat</span>
+      <span class="rp-val">{{ bd.last_heartbeat[:16].replace('T',' ') }}</span>
+    </div>
+    {% endif %}
+    {% if bd.error %}
+    <div class="rp-field">
+      <span class="rp-label" style="color:var(--red)">Error</span>
+      <span class="rp-val" style="color:var(--red);font-size:11px">{{ bd.error }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Session Actions -->
+  <div class="rp-section">
+    <div class="rp-title">Session Actions</div>
+    <div class="rp-actions-list">
+      <button class="btn btn-ghost btn-block rp-action-btn" onclick="reconnectTerminal()">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13 8A5 5 0 1 0 8 13M13 8V5M13 8h-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+        Reconnect Terminal
+      </button>
+      {% if session.session_status == 'ACTIVE' %}
+      <button class="btn btn-danger btn-block rp-action-btn" onclick="closeSession()">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Close Session
+      </button>
+      {% endif %}
+      {% if session.session_status == 'INTERRUPTED' %}
+      <button class="btn btn-warning btn-block rp-action-btn" onclick="doResume(this)">
+        <svg viewBox="0 0 16 16" width="14" height="14"><polygon points="4,3 12,8 4,13" fill="currentColor"/></svg>
+        Resume Session
+      </button>
+      <button class="btn btn-ghost btn-block rp-action-btn" onclick="doNewSession(this)">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        New Session
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+
+  <!-- Events -->
+  {% if events %}
+  <div class="rp-section">
+    <div class="rp-title">Events</div>
+    <div class="events-list">
+      {% for ev in events | reverse %}
+      <div class="ev-item">
+        <span class="ev-time">{{ (ev.timestamp or '')[:16].replace('T',' ') }}</span>
+        <span class="ev-name">{{ ev.event }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if session.tmux_exists %}
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+<script src="/static/js/terminal.js"></script>
+<script>
+  initTerminal('{{ session.session_id }}');
+</script>
+{% endif %}
+
+<script>
+const SESSION_ID = '{{ session.session_id }}';
+const SESSION_STATUS = '{{ session.session_status }}';
+const BUG_ID = '{{ session.bug_id or "" }}';
+const AGENT = '{{ session.agent }}';
+const REPO = '{{ session.repository }}';
+
+function reconnectTerminal() {
+  location.reload();
+}
+
+function closeSession() {
+  closeSessionWithConfirm(SESSION_ID, () => { window.location.href = '/'; });
+}
+
+async function doResume(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Resuming...'; }
+  try {
+    const r = await fetch(`/api/sessions/${SESSION_ID}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: AGENT }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      window.location.href = `/sessions/${d.new_session_id}`;
+    } else {
+      const err = await r.json();
+      alert('Resume failed: ' + (err.detail || 'unknown error'));
+      if (btn) { btn.disabled = false; btn.textContent = 'Resume Session'; }
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Resume Session'; }
+  }
+}
+
+async function doNewSession(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
+  try {
+    const r = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repositories: REPO ? [REPO] : [], agent: AGENT, bug_id: BUG_ID || undefined }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      window.location.href = `/sessions/${d.session_id}`;
+    } else {
+      const err = await r.json();
+      alert('Failed: ' + (err.detail || 'unknown error'));
+      if (btn) { btn.disabled = false; btn.textContent = 'New Session'; }
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'New Session'; }
+  }
+}
+
+
+// Poll for status updates every 10s
+if (SESSION_STATUS === 'ACTIVE') {
+  setInterval(async () => {
+    try {
+      const r = await fetch(`/api/sessions/${SESSION_ID}`);
+      const d = await r.json();
+      // If tmux disappeared, show notification
+      if (!d.tmux_exists) {
+        document.querySelector('.session-info-bar')?.insertAdjacentHTML('afterend',
+          '<div class="interrupted-banner"><div class="ib-icon">⚠</div><div class="ib-text">tmux session ended — reload to see current state</div><button class="btn btn-warning" onclick="location.reload()">Reload</button></div>'
+        );
+      }
+    } catch (_) {}
+  }, 10000);
+}
+</script>
+{% endblock %}

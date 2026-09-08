@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block title %}Reviews — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Code Reviews{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-primary" onclick="openNewSessionModal()" style="display:flex;align-items:center;gap:6px">
+  <svg viewBox="0 0 20 20" width="14" height="14"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  New Session
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Code Reviews</h2>
+  <div class="page-header-stats">
+    <span class="stat-chip stat-chip-green">{{ running_reviews | length }} Running</span>
+    <span class="stat-chip stat-chip-gray">{{ completed_reviews | length }} Completed</span>
+    {% if failed_reviews %}<span class="stat-chip stat-chip-red">{{ failed_reviews | length }} Failed</span>{% endif %}
+  </div>
+</div>
+
+<!-- ── Tabs ── -->
+<div class="sess-tabs" style="margin-top:16px">
+  <button class="sess-tab active" onclick="reviewSwitchTab('running', this)">
+    Running <span class="count-badge">{{ running_reviews | length }}</span>
+  </button>
+  <button class="sess-tab" onclick="reviewSwitchTab('completed', this)">
+    Completed <span class="count-badge">{{ completed_reviews | length }}{% if failed_reviews %} + {{ failed_reviews | length }}{% endif %}</span>
+  </button>
+
+  <div class="sess-tab-filters" id="rev-filters-running" style="display:none">
+    <input type="text" class="filter-input" placeholder="Search…" oninput="reviewFilter('running', this.value)">
+  </div>
+  <div class="sess-tab-filters" id="rev-filters-completed" style="display:none">
+    <input type="text" class="filter-input" placeholder="Search…" oninput="reviewFilter('completed', this.value)">
+  </div>
+</div>
+
+<!-- ── Running Tab ── -->
+<div id="rev-tab-running" class="tab-panel">
+  <div class="table-wrap">
+    <table class="bugs-table" id="tbl-rev-running">
+      <thead>
+        <tr>
+          <th>Pull Request</th>
+          <th>Author</th>
+          <th>Changes</th>
+          <th>Status</th>
+          <th>Started</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rev in running_reviews %}
+        <tr data-search="{{ rev.review_id }} {{ rev.pr_title or '' }} {{ rev.repo or '' }} {{ rev.author or '' }}">
+          <td>
+            <div class="bug-title">
+              {% if rev.pr_url %}<a href="{{ rev.pr_url }}" target="_blank" style="color:var(--text-primary);text-decoration:none;hover:underline">{{ rev.pr_title or rev.pr_url }}</a>{% else %}{{ rev.pr_title or rev.review_id }}{% endif %}
+            </div>
+            <div class="bug-id">
+              {{ rev.repo or '—' }}{% if rev.pr_number %} · #{{ rev.pr_number }}{% endif %}
+              {% if rev.pr_url %} · <a href="{{ rev.pr_url }}" target="_blank" style="color:var(--text-muted);font-size:11px">↗ GitHub</a>{% endif %}
+            </div>
+          </td>
+          <td style="color:var(--text-secondary);font-size:13px">{{ rev.author or '—' }}</td>
+          <td style="font-size:12px">
+            {% if rev.additions is not none %}
+            <span style="color:var(--green)">+{{ rev.additions }}</span>
+            <span style="color:var(--text-muted)">/</span>
+            <span style="color:var(--red)">-{{ rev.deletions or 0 }}</span>
+            <span style="color:var(--text-muted);margin-left:4px">{{ rev.changed_files or 0 }} files</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(234,179,8,.12);color:var(--yellow)">
+              RUNNING
+            </span>
+          </td>
+          <td class="ts">{{ (rev.created_at or '')[:10] or '—' }}</td>
+          <td class="bug-actions">
+            {% if rev.pr_url %}<a href="{{ rev.pr_url }}" target="_blank" class="btn btn-sm btn-ghost">GitHub PR ↗</a>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="td-empty">No reviews currently running.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Completed Tab ── -->
+<div id="rev-tab-completed" class="tab-panel" style="display:none">
+  <div class="table-wrap">
+    <table class="bugs-table" id="tbl-rev-completed">
+      <thead>
+        <tr>
+          <th>Pull Request</th>
+          <th>Author</th>
+          <th>Changes</th>
+          <th>Verdict</th>
+          <th>Reviewed</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rev in completed_reviews + failed_reviews %}
+        {% set is_failed = rev.status == 'FAILED' %}
+        <tr data-search="{{ rev.review_id }} {{ rev.pr_title or '' }} {{ rev.repo or '' }} {{ rev.author or '' }}"
+            onclick="openReview('{{ rev.review_id }}')" style="cursor:pointer">
+          <td>
+            <div class="bug-title">{{ rev.pr_title or rev.review_id }}</div>
+            <div class="bug-id">
+              {{ rev.repo or '—' }}{% if rev.pr_number %} · #{{ rev.pr_number }}{% endif %}
+              {% if rev.pr_url %} · <a href="{{ rev.pr_url }}" target="_blank" onclick="event.stopPropagation()" style="color:var(--text-muted);font-size:11px">↗ GitHub</a>{% endif %}
+            </div>
+          </td>
+          <td style="color:var(--text-secondary);font-size:13px">{{ rev.author or '—' }}</td>
+          <td style="font-size:12px">
+            {% if rev.additions is not none %}
+            <span style="color:var(--green)">+{{ rev.additions }}</span>
+            <span style="color:var(--text-muted)">/</span>
+            <span style="color:var(--red)">-{{ rev.deletions or 0 }}</span>
+            <span style="color:var(--text-muted);margin-left:4px">{{ rev.changed_files or 0 }} files</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if is_failed %}
+            <span class="bug-status-badge bug-status-failed">FAILED</span>
+            {% elif rev.verdict == 'APPROVE' %}
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.25)">APPROVE</span>
+            {% elif rev.verdict == 'REQUEST_CHANGES' %}
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.25)">REQUEST CHANGES</span>
+            {% elif rev.verdict %}
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(56,139,253,.12);color:#388bfd;border:1px solid rgba(56,139,253,.25)">{{ rev.verdict }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td class="ts">{{ (rev.updated_at or rev.created_at or '')[:10] or '—' }}</td>
+          <td class="bug-actions" onclick="event.stopPropagation()">
+            {% if not is_failed %}
+            <button class="btn btn-sm btn-primary" onclick="openReview('{{ rev.review_id }}')">View Report</button>
+            {% endif %}
+            {% if rev.pr_url %}<a href="{{ rev.pr_url }}" target="_blank" class="btn btn-sm btn-ghost">GitHub PR ↗</a>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="td-empty">No completed reviews yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Full-width review viewer (hidden until a review is clicked) ── -->
+<div id="revViewer" style="display:none;flex-direction:column;height:calc(100vh - 120px);margin-top:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg-card);border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-sm btn-ghost" onclick="closeReviewViewer()" style="display:flex;align-items:center;gap:5px">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"/></svg>
+        Back to Reviews
+      </button>
+      <span style="font-size:13px;font-weight:600;color:var(--text-primary)" id="revViewerTitle"></span>
+    </div>
+    <a id="revViewerGhLink" href="#" target="_blank" class="btn btn-sm btn-ghost" style="display:none">GitHub PR ↗</a>
+  </div>
+  <iframe id="revViewerFrame" src="" style="flex:1;width:100%;border:none;min-height:0;background:#0d1117"></iframe>
+</div>
+{% endblock %}
+
+{% block right_panel %}
+
+<!-- new session form panel -->
+<div id="rpNewSession" style="display:none;overflow-y:auto;height:100%">
+  <div style="padding:14px 12px 6px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div class="rp-section-title">New Session</div>
+    <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1" onclick="showRpPlaceholder()">✕</button>
+  </div>
+  <div style="padding:12px">
+    <form id="newSessForm" onsubmit="submitNewSessPanel(event)">
+      <div class="form-group">
+        <label>Session Type</label>
+        <select id="nsType" onchange="nsTypeChanged()">
+          <option value="empty">Empty Session</option>
+          <option value="list-bugs">List Bugs</option>
+          <option value="fix-bug">Fix Bug</option>
+          <option value="fix-bugs">Fix Multiple Bugs</option>
+          <option value="sync-bugs">Sync Bugs</option>
+          <option value="code-review">Code Review</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Agent</label>
+        <select id="nsAgent">
+          {% for agent in agents %}
+          <option value="{{ agent.id }}">{{ agent.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" id="nsRepoGroup">
+        <label>Repository <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <select id="nsRepo">
+          <option value="">— none —</option>
+          {% for repo in repositories %}
+          <option value="{{ repo.id }}">{{ repo.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" id="nsBugGroup" style="display:none">
+        <label>Bug ID</label>
+        <input type="text" id="nsBugId" placeholder="e.g. SENTRY-1234 or JAR-56" />
+      </div>
+      <div class="form-group" id="nsBugsGroup" style="display:none">
+        <label>Bug IDs <span style="color:var(--text-muted);font-weight:400">(comma-separated)</span></label>
+        <input type="text" id="nsBugIds" placeholder="SENTRY-1, JAR-2, SENTRY-3" />
+      </div>
+      <div class="form-group" id="nsPrGroup" style="display:none">
+        <label>PR Link</label>
+        <input type="url" id="nsPrUrl" placeholder="https://github.com/org/repo/pull/123" />
+      </div>
+      <div id="nsSyncGroup" style="display:none">
+        <div class="form-group">
+          <label>Sources</label>
+          <div class="sync-checks" id="nsSyncSources">
+            {% for src in sync_sources %}
+            <label class="sync-check-label">
+              <input type="checkbox" class="ns-src-cb" value="{{ src.id }}" onchange="nsSyncSourceChanged()">
+              {{ src.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-group" id="nsSyncProjectGroup" style="display:none">
+          <label>Project</label>
+          <select id="nsSyncProject">
+            <option value="">— all projects —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Max bugs <span style="color:var(--text-muted);font-weight:400">(1–100)</span></label>
+          <input type="number" id="nsSyncTop" value="10" min="1" max="100" />
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Syncs today &amp; yesterday only.</div>
+      </div>
+      <div id="nsMsgPanel" style="display:none;font-size:12px;margin-bottom:8px"></div>
+      <button type="submit" class="btn btn-primary" style="width:100%" id="nsSubmitBtn">Create Session</button>
+    </form>
+  </div>
+</div>
+
+<!-- default placeholder -->
+<div id="rpPlaceholder" style="padding:32px 16px;text-align:center;color:var(--text-muted)">
+  <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.2" style="opacity:.25;display:block;margin:0 auto 12px"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+  <div style="font-size:12px">Click a completed review<br>to open the full report</div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const _syncSources = {{ sync_sources | tojson }};
+
+function showRpPlaceholder() {
+  document.getElementById('rpPlaceholder').style.display = '';
+  document.getElementById('rpNewSession').style.display  = 'none';
+}
+function showRpNewSession() {
+  document.getElementById('rpPlaceholder').style.display = 'none';
+  document.getElementById('rpNewSession').style.display  = '';
+}
+function openNewSessionModal() { showRpNewSession(); }
+
+function nsTypeChanged() {
+  const t = document.getElementById('nsType').value;
+  document.getElementById('nsRepoGroup').style.display  = ['empty','fix-bug','fix-bugs'].includes(t) ? '' : 'none';
+  document.getElementById('nsBugGroup').style.display   = t === 'fix-bug'     ? '' : 'none';
+  document.getElementById('nsBugsGroup').style.display  = t === 'fix-bugs'    ? '' : 'none';
+  document.getElementById('nsSyncGroup').style.display  = t === 'sync-bugs'   ? '' : 'none';
+  document.getElementById('nsPrGroup').style.display    = t === 'code-review' ? '' : 'none';
+  const labels = { 'empty':'Create Session', 'list-bugs':'Start List Bugs', 'fix-bug':'Start Fix Bug', 'fix-bugs':'Start Fix Bugs', 'sync-bugs':'Sync Bugs', 'code-review':'Start Code Review' };
+  document.getElementById('nsSubmitBtn').textContent = labels[t] || 'Create Session';
+}
+
+function nsSyncSourceChanged() {
+  const selected = Array.from(document.querySelectorAll('.ns-src-cb:checked')).map(c => c.value);
+  const seen = {};
+  _syncSources.forEach(src => { if (selected.includes(src.id)) Object.keys(src.projects).forEach(k => seen[k] = true); });
+  const keys = Object.keys(seen);
+  const sel = document.getElementById('nsSyncProject');
+  const group = document.getElementById('nsSyncProjectGroup');
+  sel.innerHTML = '<option value="">— all projects —</option>';
+  if (keys.length && selected.length) {
+    keys.forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
+    group.style.display = '';
+  } else { group.style.display = 'none'; }
+}
+
+function showMsg(el, text, color) {
+  el.textContent = text;
+  el.style.color = color === 'red' ? 'var(--red)' : color === 'green' ? 'var(--green)' : 'var(--text-muted)';
+  el.style.display = '';
+}
+
+async function submitNewSessPanel(e) {
+  e.preventDefault();
+  const msg   = document.getElementById('nsMsgPanel');
+  const btn   = document.getElementById('nsSubmitBtn');
+  const type  = document.getElementById('nsType').value;
+  const agent = document.getElementById('nsAgent').value;
+  const repo  = document.getElementById('nsRepo').value || null;
+  btn.disabled = true;
+  msg.style.display = 'none';
+  try {
+    if (type === 'sync-bugs') {
+      const sources = Array.from(document.querySelectorAll('.ns-src-cb:checked')).map(c => c.value);
+      if (!sources.length) { showMsg(msg, 'Select at least one source.', 'red'); return; }
+      const project = document.getElementById('nsSyncProject').value || null;
+      const top = Math.min(100, Math.max(1, parseInt(document.getElementById('nsSyncTop').value, 10) || 10));
+      const res = await fetch('/api/bugs/sync', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ sources, project, top, agent }) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.sessions[0]}`;
+    } else if (type === 'fix-bugs') {
+      const raw = document.getElementById('nsBugIds').value;
+      const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+      if (!ids.length) { showMsg(msg, 'Enter at least one Bug ID.', 'red'); return; }
+      showMsg(msg, `Creating ${ids.length} session(s)…`, 'muted');
+      const repos = repo ? [repo] : [];
+      let firstId = null;
+      for (const bugId of ids) {
+        const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ repositories: repos, agent, bug_id: bugId, session_type: 'fix-bugs', start_command: `/fix-bug ${bugId}` }) });
+        const data = await res.json();
+        if (!res.ok) { showMsg(msg, `Error for ${bugId}: ` + (data.detail || res.statusText), 'red'); return; }
+        if (!firstId) firstId = data.session_id;
+      }
+      window.location.href = `/sessions/${firstId}`;
+    } else if (type === 'code-review') {
+      const prUrl = document.getElementById('nsPrUrl').value.trim();
+      if (!prUrl) { showMsg(msg, 'Enter a PR URL.', 'red'); return; }
+      const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ repositories: [], agent, session_type: 'code-review', start_command: `/code-review ${prUrl}` }) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.session_id}`;
+    } else {
+      const repos = repo ? [repo] : [];
+      const payload = { repositories: repos, agent, session_type: type };
+      if (type === 'fix-bug') {
+        const bugId = document.getElementById('nsBugId').value.trim();
+        if (!bugId) { showMsg(msg, 'Enter a Bug ID.', 'red'); return; }
+        payload.bug_id = bugId;
+        payload.start_command = `/fix-bug ${bugId}`;
+      } else if (type === 'list-bugs') {
+        payload.start_command = '/list-bugs';
+      }
+      const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.session_id}`;
+    }
+  } catch(err) {
+    showMsg(msg, err.message, 'red');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function reviewSwitchTab(name, btn) {
+  document.querySelectorAll('.sess-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('rev-tab-' + name).style.display = '';
+  document.querySelectorAll('.sess-tab-filters').forEach(f => f.style.display = 'none');
+  const filters = document.getElementById('rev-filters-' + name);
+  if (filters) filters.style.display = '';
+}
+
+function reviewFilter(tab, text) {
+  const q = text.trim().toLowerCase();
+  document.querySelectorAll('#tbl-rev-' + tab + ' tbody tr').forEach(row => {
+    if (row.querySelector('.td-empty')) return;
+    row.style.display = (!q || (row.dataset.search || '').toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
+const _reviews = {{ (completed_reviews + failed_reviews) | tojson }};
+
+function openReview(reviewId) {
+  const rev = _reviews.find(r => r.review_id === reviewId);
+
+  // populate viewer header
+  document.getElementById('revViewerTitle').textContent = rev ? (rev.pr_title || reviewId) : reviewId;
+  const ghLink = document.getElementById('revViewerGhLink');
+  if (rev && rev.pr_url) { ghLink.href = rev.pr_url; ghLink.style.display = ''; }
+  else { ghLink.style.display = 'none'; }
+
+  // load iframe
+  document.getElementById('revViewerFrame').src = `/reviews/${reviewId}/html`;
+
+  // swap list ↔ viewer in the main content area
+  document.querySelector('.page-header').style.display = 'none';
+  document.querySelectorAll('.sess-tabs, .tab-panel').forEach(el => el.style.display = 'none');
+  const viewer = document.getElementById('revViewer');
+  viewer.style.display = 'flex';
+}
+
+function closeReviewViewer() {
+  document.getElementById('revViewerFrame').src = '';
+  document.getElementById('revViewer').style.display = 'none';
+  document.querySelector('.page-header').style.display = '';
+  // restore active tab
+  document.querySelector('.sess-tab.active')
+    ? document.querySelector('.sess-tab.active').click()
+    : document.querySelectorAll('.sess-tabs, .tab-panel').forEach(el => el.style.display = '');
+}
+
+// Auto-refresh running reviews every 15s (only when list is visible)
+{% if running_reviews %}
+setInterval(() => { if (document.getElementById('revViewer').style.display === 'none') location.reload(); }, 15000);
+{% endif %}
+</script>
+{% endblock %}

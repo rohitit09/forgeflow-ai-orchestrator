@@ -1,0 +1,1403 @@
+{% extends "base.html" %}
+{% block title %}Plans — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Plans{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
+<style>
+/* ── Markdown plan viewer ── */
+.plan-md {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--text-primary);
+}
+.plan-md h1 {
+  font-size: 21px; font-weight: 700; margin: 0 0 4px;
+  color: var(--purple-light);
+  border-bottom: 2px solid var(--purple);
+  padding-bottom: 10px;
+}
+.plan-md h2 {
+  font-size: 15px; font-weight: 600; margin: 32px 0 8px;
+  color: var(--blue-light);
+  border-bottom: 1px solid rgba(96,165,250,.25);
+  padding-bottom: 6px;
+  display: flex; align-items: center; gap: 7px;
+}
+.plan-md h2::before {
+  content: '';
+  display: inline-block;
+  width: 3px; height: 14px;
+  background: var(--blue-light);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.plan-md h3 {
+  font-size: 13.5px; font-weight: 600; margin: 20px 0 6px;
+  color: var(--green);
+}
+.plan-md h4 { font-size: 13px; font-weight: 600; margin: 16px 0 4px; color: var(--orange); }
+.plan-md p  { margin: 0 0 10px; }
+.plan-md p:last-child { margin-bottom: 0; }
+.plan-md a  { color: var(--blue-light); text-decoration: none; }
+.plan-md a:hover { text-decoration: underline; }
+.plan-md strong { font-weight: 600; color: var(--text-primary); }
+.plan-md em { color: var(--text-secondary); font-style: italic; }
+.plan-md hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+.plan-md ul, .plan-md ol { margin: 6px 0 10px; padding-left: 22px; }
+.plan-md li { margin-bottom: 4px; }
+.plan-md li > ul, .plan-md li > ol { margin: 3px 0; }
+.plan-md ul li::marker { color: var(--purple-light); }
+.plan-md ol li::marker { color: var(--blue-light); font-weight: 600; }
+.plan-md code {
+  font-family: 'Menlo','Monaco','Courier New',monospace;
+  font-size: 11.5px;
+  background: rgba(124,58,237,.15);
+  border: 1px solid rgba(124,58,237,.3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--purple-light);
+}
+.plan-md pre {
+  background: #0d1117;
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--purple);
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.plan-md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.plan-md blockquote {
+  border-left: 3px solid var(--orange);
+  background: var(--orange-dim);
+  border-radius: 0 6px 6px 0;
+  margin: 12px 0;
+  padding: 8px 16px;
+  color: var(--text-secondary);
+}
+.plan-md table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 14px 0;
+  font-size: 12.5px;
+}
+.plan-md th {
+  background: rgba(37,99,235,.15);
+  border: 1px solid rgba(96,165,250,.2);
+  padding: 7px 13px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--blue-light);
+}
+.plan-md td {
+  border: 1px solid var(--border);
+  padding: 6px 13px;
+  vertical-align: top;
+}
+.plan-md tr:nth-child(even) td { background: rgba(255,255,255,.025); }
+/* ── Plan viewer tabs ── */
+.plan-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); padding:0 20px; background:var(--bg-card); }
+.plan-tab { font-size:12.5px; font-weight:600; padding:9px 16px; cursor:pointer; border:none; background:none; color:var(--text-muted); border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s,border-color .15s; }
+.plan-tab:hover { color:var(--text-primary); }
+.plan-tab.active { color:var(--blue-light); border-bottom-color:var(--blue-light); }
+
+/* ── Execution summary — uses app's own table + badge patterns ── */
+.exec-wrap { padding:24px 32px; }
+.exec-block { margin-bottom:28px; }
+.exec-block-title { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--text-muted); margin:0 0 12px; }
+.exec-meta-bar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 14px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; font-size:12.5px; }
+.exec-meta-sep { color:var(--border-light); }
+.exec-sha { font-family:monospace; font-size:11px; color:var(--text-muted); }
+.exec-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.exec-table th { padding:7px 12px; text-align:left; font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); border-bottom:1px solid var(--border); white-space:nowrap; }
+.exec-table td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text-secondary); }
+.exec-table tr:last-child td { border-bottom:none; }
+.exec-table tr:hover td { background:var(--bg-card-hover); }
+.exec-table td.primary { color:var(--text-primary); }
+.exec-verdict { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; padding:2px 8px; border-radius:12px; }
+.exec-verdict-ok   { background:var(--green-dim); color:var(--green); }
+.exec-verdict-fix  { background:var(--orange-dim); color:var(--orange); }
+.exec-finding { padding:8px 0; border-top:1px solid var(--border); font-size:12px; color:var(--text-secondary); line-height:1.55; }
+.exec-finding:first-child { border-top:none; padding-top:0; }
+.exec-finding-repo { font-size:11px; font-weight:700; color:var(--text-primary); margin-bottom:5px; display:flex; align-items:center; gap:8px; }
+.exec-finding-list { margin:0; padding-left:16px; }
+.exec-finding-list li { margin-bottom:3px; }
+.exec-step { display:flex; align-items:flex-start; gap:10px; padding:7px 0; border-top:1px solid var(--border); font-size:12px; color:var(--text-secondary); line-height:1.55; }
+.exec-step:first-child { border-top:none; padding-top:0; }
+.exec-step-num { min-width:20px; height:20px; border-radius:50%; background:var(--bg-input); border:1px solid var(--border); color:var(--text-muted); font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+.exec-step code { font-family:monospace; font-size:11px; background:rgba(124,58,237,.12); border:1px solid rgba(124,58,237,.25); border-radius:3px; padding:1px 5px; color:var(--purple-light); }
+.exec-pr-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--border); }
+.exec-pr-row:first-child { border-top:none; padding-top:0; }
+.exec-kind-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+
+/* VS Code terminal panel look */
+#planTermView {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Tab bar */
+#planTermTabBar {
+  display: flex;
+  align-items: stretch;
+  background: #f6f8fa;
+  border-bottom: 1px solid #d0d7de;
+  height: 35px;
+  flex-shrink: 0;
+}
+#planTermTab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  background: #2ea043;
+  border-right: 1px solid #238636;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  white-space: nowrap;
+}
+#planTermTab svg { opacity: .6; }
+#planTermActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 4px;
+}
+#plan-term-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 4px 8px;
+  background: #000000;
+}
+#plan-term-container .xterm { height: 100%; }
+#plan-term-container .xterm-viewport,
+#plan-term-container .xterm-screen { background: #000000 !important; }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-primary" onclick="createPlan()" style="display:flex;align-items:center;gap:6px">
+  <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+  Create Plan
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Create Plan Modal ── -->
+<div class="modal-backdrop" id="createPlanBackdrop" style="display:none" onclick="closeCreatePlanModal()"></div>
+<div class="modal" id="createPlanModal" style="display:none">
+  <div class="modal-header">
+    <h3 id="cpModalTitle">Create Plan</h3>
+    <button class="modal-close" onclick="closeCreatePlanModal()">✕</button>
+  </div>
+  <div class="modal-body">
+    <form id="createPlanForm" onsubmit="submitCreatePlan(event)">
+      <div class="form-group">
+        <label>Plan Title <span class="label-hint">or Jira link</span></label>
+        <input type="text" id="cpTitle" placeholder="e.g. Improve checkout latency  —  or  https://…/browse/JAR-42" autofocus required>
+      </div>
+      <div class="form-group">
+        <label>Agent</label>
+        <select id="cpAgent">
+          {% for agent in agents %}
+          <option value="{{ agent.id }}">{{ agent.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" id="cpModeGroup">
+        <label>Terminal</label>
+        <select id="cpModeSelect">
+          <option value="direct">Direct — full scrollback, ephemeral</option>
+          <option value="tmux">tmux — persistent, dashboard, reconnects</option>
+        </select>
+      </div>
+      <div class="form-msg" id="cpMsg"></div>
+    </form>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="closeCreatePlanModal()">Cancel</button>
+    <button class="btn btn-primary" id="cpSubmitBtn" onclick="submitCreatePlan()">Create Plan</button>
+  </div>
+</div>
+
+<!-- ── Execute Plan Modal ── -->
+<div class="modal-backdrop" id="execPlanBackdrop" style="display:none" onclick="closeExecutePlanModal()"></div>
+<div class="modal" id="execPlanModal" style="display:none">
+  <div class="modal-header">
+    <h3>Execute Plan</h3>
+    <button class="modal-close" onclick="closeExecutePlanModal()">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group">
+      <label>Plan ID</label>
+      <input type="text" id="epPlanId" readonly style="opacity:.7;cursor:default">
+    </div>
+    <div class="form-group">
+      <label>Agent</label>
+      <select id="epAgent">
+        {% for agent in agents %}
+        <option value="{{ agent.id }}">{{ agent.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-msg" id="epMsg" style="display:none"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-ghost" onclick="closeExecutePlanModal()">Cancel</button>
+    <button class="btn btn-primary" id="epSubmitBtn" onclick="submitExecutePlan()">Execute Plan</button>
+  </div>
+</div>
+
+<!-- ── Inline plan terminal — VS Code style ── -->
+<div id="planTermView" style="display:none;margin-top:8px">
+  <div id="planTermTabBar">
+    <div id="planTermTab">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="#cccccc"><path d="M2 3h12v1H2zm0 4h12v1H2zm0 4h12v1H2z" opacity=".4"/><rect x="1" y="1.5" width="14" height="13" rx="1" fill="none" stroke="#cccccc" stroke-width="1" opacity=".3"/><path d="M2 6l3 3-3 3" stroke="#cccccc" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 12h6" stroke="#cccccc" stroke-width="1.2" stroke-linecap="round"/></svg>
+      Create Plan
+    </div>
+    <div id="planTermActions">
+      <button class="btn btn-xs btn-ghost" onclick="closePlanTerminal()" style="font-size:11px;color:#57606a">← Back to Plans</button>
+    </div>
+  </div>
+  <div id="plan-term-container"></div>
+</div>
+
+<!-- ── Plan list ── -->
+<div id="plansMain">
+
+  <div class="page-header" id="plansListHeader" style="margin-top:16px">
+    <h2 class="page-title">Plans</h2>
+    <div class="page-header-stats">
+      <span class="stat-chip stat-chip-blue">{{ plans | length }} plans</span>
+      {% set partial_count = plans | selectattr('status', 'equalto', 'PARTIAL') | list | length %}
+      {% set draft_count   = plans | selectattr('status', 'equalto', 'DRAFT')   | list | length %}
+      {% set done_count    = plans | selectattr('status', 'equalto', 'DONE')    | list | length %}
+      {% if partial_count %}<span class="stat-chip stat-chip-yellow">{{ partial_count }} partial</span>{% endif %}
+      {% if draft_count   %}<span class="stat-chip stat-chip-yellow">{{ draft_count }} draft</span>{% endif %}
+      {% if done_count    %}<span class="stat-chip stat-chip-green">{{ done_count }} done</span>{% endif %}
+    </div>
+  </div>
+
+  <div id="plansList" style="margin-top:16px">
+    {% if not plans %}
+    <div class="empty-state">
+      <svg viewBox="0 0 64 64" width="40" height="40" opacity=".25" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="4" width="36" height="48" rx="3"/><path d="M16 16h20M16 24h20M16 32h12"/></svg>
+      <p>No plans yet.</p>
+      <button class="btn btn-primary" onclick="createPlan()" style="margin-top:12px">Create your first plan</button>
+    </div>
+    {% else %}
+    <div class="table-wrap">
+      <table class="bugs-table" id="plansTable">
+        <thead>
+          <tr>
+            <th>Plan</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for plan in plans %}
+          <tr data-search="{{ plan.plan_id }} {{ plan.name }}"
+              onclick="openPlan('{{ plan.plan_id }}')" style="cursor:pointer">
+            <td>
+              <div class="bug-title">{{ plan.name or plan.plan_id }}</div>
+              <div class="bug-id">{{ plan.plan_id }}</div>
+            </td>
+            <td>
+              {% set st = plan.status or 'DRAFT' %}
+              {% set sess = plan.active_session %}
+              {% if sess %}
+                {% set display_st = sess.session_status %}
+              {% else %}
+                {% set display_st = st %}
+              {% endif %}
+              <span class="bug-status-badge
+                {%- if display_st in ['ACTIVE','RUNNING'] %} bug-status-running
+                {%- elif display_st == 'STALE' %} bug-status-running
+                {%- elif display_st == 'DONE' %} bug-status-done
+                {%- elif display_st == 'FAILED' %} bug-status-failed
+                {%- elif display_st == 'PARTIAL' %} bug-status-running
+                {%- endif %}">{{ display_st }}{% if st == 'PARTIAL' and plan.resumed_phase and not sess %} · phase {{ plan.resumed_phase }}{% endif %}</span>
+            </td>
+            <td class="ts">{{ (plan.created_at or '')[:10] or '—' }}</td>
+            <td class="bug-actions" onclick="event.stopPropagation()">
+              {% if sess %}
+              <a href="/sessions/{{ sess.session_id }}" class="btn btn-sm btn-primary">View Session</a>
+              {% elif st == 'PARTIAL' %}
+              <button class="btn btn-sm btn-primary" onclick="resumePlan('{{ plan.plan_id }}')">Resume Creating</button>
+              {% elif st == 'FAILED' %}
+              <button class="btn btn-sm btn-primary" onclick="executePlan('{{ plan.plan_id }}', 'rerun', '{{ plan.agent or '' }}')">Re-run</button>
+              {% elif st == 'DONE' %}
+              <button class="btn btn-sm btn-ghost" onclick="executePlan('{{ plan.plan_id }}', 'rerun', '{{ plan.agent or '' }}')">Re-run</button>
+              {% else %}
+              <button class="btn btn-sm btn-primary" onclick="executePlan('{{ plan.plan_id }}', 'execute', '{{ plan.agent or '' }}')">Execute Plan</button>
+              {% endif %}
+              <button class="btn btn-sm btn-ghost" onclick="openPlan('{{ plan.plan_id }}')">View</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Plan viewer (inline, full-width) ── -->
+  <div id="plansViewer" style="display:none;flex-direction:column;margin-top:8px">
+    <!-- header row -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px 8px 0 0">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn btn-sm btn-ghost" onclick="closePlanViewer()" style="display:flex;align-items:center;gap:5px">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"/></svg>
+          Back to Plans
+        </button>
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)" id="plansViewerTitle"></span>
+      </div>
+    </div>
+    <!-- tab bar -->
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-top:none">
+      <div class="plan-tabs">
+        <button class="plan-tab active" id="planTabPlan" onclick="switchPlanTab('plan')">Plan</button>
+        <button class="plan-tab" id="planTabDesign" onclick="switchPlanTab('design')" style="display:none">Design</button>
+        <button class="plan-tab" id="planTabExec" onclick="switchPlanTab('exec')" style="display:none">Execution Summary</button>
+      </div>
+    </div>
+    <!-- plan content -->
+    <div id="planViewPlan" style="background:var(--bg-card);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;padding:28px 36px;overflow-y:auto;max-height:calc(100vh - 220px)">
+      <div id="plansViewerContent" class="plan-md"></div>
+    </div>
+    <!-- execution summary content -->
+    <div id="planViewExec" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;overflow-y:auto;max-height:calc(100vh - 220px)">
+      <div id="execSummaryContent" style="padding:24px 28px"></div>
+    </div>
+    <!-- design mockup content -->
+    <div id="planViewDesign" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;overflow:hidden">
+      <div id="designMockupsContent"></div>
+    </div>
+  </div>
+
+  <div id="plansMsg" style="display:none;margin-top:12px;font-size:13px;padding:10px 14px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border)"></div>
+
+</div><!-- /#plansMain -->
+
+{% endblock %}
+
+{% block right_panel %}
+
+<!-- default: filter + summary panel -->
+<div id="rpDefault" style="padding:18px 14px;display:flex;flex-direction:column;gap:0">
+
+  <!-- summary stats -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
+    {% set total_count   = plans | length %}
+    {% set running_count = plans | selectattr('status','in',['RUNNING','PARTIAL']) | list | length %}
+    {% set done_count    = plans | selectattr('status','equalto','DONE') | list | length %}
+    {% set draft_count   = plans | selectattr('status','in',['DRAFT','APPROVED']) | list | length %}
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:7px;padding:10px 12px">
+      <div style="font-size:22px;font-weight:800;font-family:monospace;color:var(--text-primary);line-height:1">{{ total_count }}</div>
+      <div style="font-size:10.5px;color:var(--text-muted);margin-top:3px">Total</div>
+    </div>
+    <div style="background:var(--green-dim);border:1px solid rgba(34,197,94,.2);border-radius:7px;padding:10px 12px">
+      <div style="font-size:22px;font-weight:800;font-family:monospace;color:var(--green);line-height:1">{{ done_count }}</div>
+      <div style="font-size:10.5px;color:var(--green);opacity:.7;margin-top:3px">Done</div>
+    </div>
+    <div style="background:rgba(37,99,235,.1);border:1px solid rgba(96,165,250,.2);border-radius:7px;padding:10px 12px">
+      <div style="font-size:22px;font-weight:800;font-family:monospace;color:var(--blue-light);line-height:1">{{ running_count }}</div>
+      <div style="font-size:10.5px;color:var(--blue-light);opacity:.7;margin-top:3px">Running</div>
+    </div>
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:7px;padding:10px 12px">
+      <div style="font-size:22px;font-weight:800;font-family:monospace;color:var(--text-secondary);line-height:1">{{ draft_count }}</div>
+      <div style="font-size:10.5px;color:var(--text-muted);margin-top:3px">Draft</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- plan detail sidebar -->
+<div id="rpPlanDetail" style="display:none;padding:18px 14px;overflow-y:auto;height:100%;display:flex;flex-direction:column;gap:0">
+
+  <!-- plan name -->
+  <div id="rpPlanName" style="font-size:14px;font-weight:700;color:var(--text-primary);line-height:1.4;margin-bottom:10px"></div>
+
+  <!-- status row -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+    <span id="rpPlanStatus" style="font-size:12px;font-weight:600;color:var(--text-secondary)"></span>
+    <span style="color:var(--text-muted);font-size:12px">·</span>
+    <span id="rpPlanDate" style="font-size:12px;color:var(--text-muted)"></span>
+  </div>
+
+  <!-- plan id -->
+  <div id="rpPlanId" style="font-size:10px;font-family:monospace;color:var(--text-muted);margin-bottom:18px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+
+  <div style="border-top:1px solid var(--border);margin-bottom:16px"></div>
+
+  <!-- repos -->
+  <div style="margin-bottom:10px">
+    <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted)">Repos involved</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Codebases this plan touches</div>
+  </div>
+  <div id="rpPlanRepos" style="display:flex;flex-direction:column;gap:7px;margin-bottom:18px"></div>
+
+  <div style="border-top:1px solid var(--border);margin-bottom:16px"></div>
+
+  <!-- tasks -->
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
+    <div>
+      <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted)">Work items</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Tasks by repo</div>
+    </div>
+    <span id="rpPlanTaskTotal" style="font-size:20px;font-weight:800;font-family:monospace;color:var(--green);line-height:1"></span>
+  </div>
+  <div id="rpPlanTasks" style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px"></div>
+
+  <div style="flex:1"></div>
+
+  <!-- execution quick-links (only when execution_summary present) -->
+  <div id="rpExecLinks" style="display:none">
+    <div style="border-top:1px solid var(--border);margin-bottom:14px"></div>
+    <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:10px">Pull Requests</div>
+    <div id="rpExecPrs" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px"></div>
+  </div>
+
+  <div style="border-top:1px solid var(--border);margin-bottom:14px"></div>
+
+  <button class="btn btn-ghost" style="width:100%;justify-content:center;display:flex;font-size:12px" onclick="closePlanViewer()">← Back to Plans</button>
+</div>
+
+<!-- terminal active: plan creation status -->
+<div id="rpTermStatus" style="display:none;padding:20px 14px">
+
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:14px">Plan Creation</div>
+
+  <!-- status badge -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+    <span class="live-dot" id="rpStatusDot"></span>
+    <span id="rpStatusText" style="font-size:13px;font-weight:600;color:var(--text-primary)">Starting…</span>
+  </div>
+
+  <!-- step counter + progress bar + refresh -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <span style="font-size:11px;color:var(--text-muted)">Progress</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span id="rpStepCounter" style="font-size:11px;font-family:monospace;color:var(--text-secondary)">0 of 6</span>
+      <button id="rpRefreshBtn" type="button" onclick="refreshPlanStatus()"
+              title="Refresh status"
+              style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-secondary);cursor:pointer;padding:2px 6px;font-size:11px;line-height:1;display:flex;align-items:center;gap:3px">
+        <svg id="rpRefreshIcon" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .35s ease">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/>
+          <path d="M14 2v3.5H10.5"/>
+        </svg>
+        Refresh
+      </button>
+    </div>
+  </div>
+  <div style="height:6px;background:var(--bg-elevated,#1a1a1a);border:1px solid var(--border);border-radius:3px;overflow:hidden;margin-bottom:14px">
+    <div id="rpProgressFill" style="height:100%;width:0%;background:var(--green,#2ea043);transition:width .35s ease"></div>
+  </div>
+
+  <!-- elapsed time -->
+  <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+    <span style="font-size:11px;color:var(--text-muted)">Elapsed</span>
+    <span id="rpElapsed" style="font-size:11px;font-family:monospace;color:var(--text-secondary)">0s</span>
+  </div>
+
+  <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+
+  <!-- step list — matches skills/create-plan phases 2a–2f -->
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:10px">Planning Phases</div>
+  <div id="rpPhaseList" style="display:flex;flex-direction:column;gap:8px"></div>
+
+  <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+
+  <!-- live log.md viewer -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted)">Planning Log</span>
+    <span id="rpLogBadge" style="display:none;font-size:9.5px;padding:1px 6px;border-radius:3px;background:var(--green-dim);color:var(--green);font-weight:600">live</span>
+  </div>
+  <div id="rpLogEmpty" style="font-size:11px;color:var(--text-muted);margin-bottom:12px">No log yet — starts after first Q&A exchange.</div>
+  <div id="rpLogWrap" style="display:none;flex-direction:column;gap:0;margin-bottom:16px">
+    <div id="rpLogContent" style="font-size:10.5px;font-family:monospace;color:var(--text-secondary);white-space:pre-wrap;line-height:1.55;max-height:320px;overflow-y:auto;background:var(--bg-base);border:1px solid var(--border);border-radius:4px;padding:10px 10px 8px;word-break:break-word"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:4px">
+      <label style="font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="rpLogAutoScroll" checked style="width:auto"> auto-scroll
+      </label>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid var(--border);margin:8px 0 16px"></div>
+
+  <button class="btn btn-ghost" style="width:100%;justify-content:center;display:flex;font-size:12px" onclick="closePlanTerminal()">
+    ← Back to Plans
+  </button>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+const _plans = {{ plans | tojson }};
+
+let _term = null, _fit = null, _ws = null;
+let _termMode = 'direct'; // 'tmux' | 'direct'
+let _elapsedTimer = null, _elapsedSecs = 0;
+let _statusPoll = null, _planSlugRun = null;
+
+/* ── Planning phases — mirrors skills/create-plan Steps 2a–2f. Labels/hints
+   are for display only; the actual current phase is driven by the JSON
+   heartbeat the skill writes to plans/_runs/<run_id>/status.json ── */
+const PLAN_PHASES = [
+  {label: 'Brainstorming',   hint: 'Problem · user · success · scope · constraints'},
+  {label: 'Product Plan',    hint: 'Solution overview, flows, data, NFRs'},
+  {label: 'Repo Intake',     hint: 'Which repos does this plan touch'},
+  {label: 'Backend Design',  hint: 'Implementation units per backend repo'},
+  {label: 'Frontend Design', hint: 'Implementation units per frontend repo'},
+  {label: 'Assembly',        hint: 'Task DAG · Jira · write plan files'},
+];
+
+let _curPhase = 0;   // 0 = not started, 1..6 = current phase
+let _phaseDone = false;
+let _subStatus = 'running';  // 'running' | 'awaiting_approval' | 'done'
+let _planSlug = null;
+
+function _rpShow() {
+  document.getElementById('rpDefault').style.display = 'none';
+  document.getElementById('rpTermStatus').style.display = '';
+  _elapsedSecs = 0;
+  _curPhase = 0;
+  _phaseDone = false;
+  _subStatus = 'running';
+  _planSlug = null;
+  // reset log panel
+  const _logWrap = document.getElementById('rpLogWrap');
+  const _logEmpty = document.getElementById('rpLogEmpty');
+  const _logBadge = document.getElementById('rpLogBadge');
+  if (_logWrap) _logWrap.style.display = 'none';
+  if (_logEmpty) { _logEmpty.style.display = ''; }
+  if (_logBadge) _logBadge.style.display = 'none';
+  _renderPhases();
+  _rpSetStatus('Starting…');
+  clearInterval(_elapsedTimer);
+  _elapsedTimer = setInterval(() => {
+    _elapsedSecs++;
+    document.getElementById('rpElapsed').textContent = _elapsedSecs + 's';
+  }, 1000);
+}
+
+function _rpHide() {
+  clearInterval(_elapsedTimer);
+  if (_statusPoll) { clearInterval(_statusPoll); _statusPoll = null; }
+  document.getElementById('rpDefault').style.display = '';
+  document.getElementById('rpTermStatus').style.display = 'none';
+}
+
+function _renderPhases() {
+  const total = PLAN_PHASES.length;
+  const done  = _phaseDone ? total : Math.max(0, _curPhase - 1);
+  const isAwait = _subStatus === 'awaiting_approval' && !_phaseDone;
+  document.getElementById('rpStepCounter').textContent =
+    _phaseDone ? `${total} of ${total} · done` :
+    (_curPhase === 0 ? `0 of ${total}` : `${_curPhase} of ${total}${isAwait ? ' · awaiting approval' : ''}`);
+  const pct = _phaseDone ? 1 : ((done + (_curPhase ? (isAwait ? 0.8 : 0.5) : 0)) / total);
+  document.getElementById('rpProgressFill').style.width = (pct * 100) + '%';
+
+  const list = document.getElementById('rpPhaseList');
+  list.innerHTML = PLAN_PHASES.map((p, i) => {
+    const idx = i + 1;
+    let icon, color, weight;
+    if (_phaseDone || idx < _curPhase) { icon = '✓'; color = 'var(--green)'; weight = '500'; }
+    else if (idx === _curPhase) {
+      icon = isAwait ? '⏸' : '→';
+      color = 'var(--text-primary)';
+      weight = '600';
+    } else { icon = '○'; color = 'var(--text-muted)'; weight = '400'; }
+    return `<div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:${color};font-weight:${weight}">
+      <span style="font-size:14px;width:16px;text-align:center;flex-shrink:0">${icon}</span>
+      <div style="display:flex;flex-direction:column;gap:1px">
+        <span>${idx}. ${p.label}</span>
+        <span style="font-size:10.5px;color:var(--text-muted);font-weight:400">${p.hint}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _applyPhaseStatus(d) {
+  if (!d || typeof d.phase !== 'number') return;
+  const phase = Math.max(1, Math.min(PLAN_PHASES.length, d.phase | 0));
+  // Never regress.
+  if (phase < _curPhase && !(d.sub_status === 'done' && phase === PLAN_PHASES.length)) return;
+  _curPhase = phase;
+  _subStatus = d.sub_status || 'running';
+  if (d.plan_slug) _planSlug = d.plan_slug;
+
+  if (_subStatus === 'done' && phase === PLAN_PHASES.length) {
+    _phaseDone = true;
+    _rpSetStatus(`Plan saved ✓${_planSlug ? ' — ' + _planSlug : ''}`, true);
+  } else if (_subStatus === 'awaiting_approval') {
+    _rpSetStatus(`Phase ${phase}: ${PLAN_PHASES[phase-1].label} · needs approval`);
+  } else {
+    _rpSetStatus(`Phase ${phase}: ${PLAN_PHASES[phase-1].label}`);
+  }
+  _renderPhases();
+}
+
+async function _fetchPlanStatus() {
+  if (!_planSlugRun) return null;
+  try {
+    const r = await fetch(`/api/plans/${_planSlugRun}/status`, {cache: 'no-store'});
+    if (!r.ok) return null;
+    const d = await r.json();
+    _applyPhaseStatus(d);
+    return d;
+  } catch (_) { return null; }
+}
+
+async function _fetchLog() {
+  if (!_planSlugRun) return;
+  try {
+    const r = await fetch(`/api/plans/${_planSlugRun}/log`, {cache: 'no-store'});
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.content) return;
+    const wrap = document.getElementById('rpLogWrap');
+    const empty = document.getElementById('rpLogEmpty');
+    const content = document.getElementById('rpLogContent');
+    const badge = document.getElementById('rpLogBadge');
+    if (wrap) wrap.style.display = 'flex';
+    if (empty) empty.style.display = 'none';
+    if (badge) badge.style.display = '';
+    if (content) {
+      content.textContent = d.content;
+      const autoScroll = document.getElementById('rpLogAutoScroll');
+      if (!autoScroll || autoScroll.checked) content.scrollTop = content.scrollHeight;
+    }
+  } catch (_) {}
+}
+
+function _startStatusPoll() {
+  if (_statusPoll) clearInterval(_statusPoll);
+  _statusPoll = setInterval(() => {
+    if (!_phaseDone) _fetchPlanStatus();
+    _fetchLog();
+  }, 5000);
+}
+
+async function refreshPlanStatus() {
+  const btn  = document.getElementById('rpRefreshBtn');
+  const icon = document.getElementById('rpRefreshIcon');
+  if (!btn) return;
+  btn.disabled = true;
+  if (icon) icon.style.transform = 'rotate(360deg)';
+  try { await Promise.all([_fetchPlanStatus(), _fetchLog()]); }
+  finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      if (icon) { icon.style.transition = 'none'; icon.style.transform = 'rotate(0deg)';
+        requestAnimationFrame(() => { icon.style.transition = 'transform .35s ease'; }); }
+    }, 400);
+  }
+}
+
+function _rpSetStatus(text, done) {
+  document.getElementById('rpStatusText').textContent = text;
+  const dot = document.getElementById('rpStatusDot');
+  dot.style.background = done ? 'var(--green)' : '';
+  dot.style.animation  = done ? 'none' : '';
+}
+
+/* ── Create Plan — modal → direct PTY, no tmux, no session ── */
+function createPlan() {
+  const titleEl = document.getElementById('cpTitle');
+  titleEl.value = '';
+  delete titleEl.dataset.resumeId;
+  titleEl.readOnly = false;
+  titleEl.style.opacity = '';
+  document.getElementById('cpModalTitle').textContent = 'Create Plan';
+  document.getElementById('cpSubmitBtn').textContent  = 'Create Plan';
+  document.getElementById('cpMsg').textContent = '';
+  document.getElementById('cpMsg').style.display = 'none';
+  document.getElementById('createPlanBackdrop').style.display = '';
+  document.getElementById('createPlanModal').style.display = '';
+  setTimeout(() => titleEl.focus(), 30);
+}
+
+function closeCreatePlanModal() {
+  document.getElementById('createPlanBackdrop').style.display = 'none';
+  document.getElementById('createPlanModal').style.display = 'none';
+  const titleEl = document.getElementById('cpTitle');
+  delete titleEl.dataset.resumeId;
+  titleEl.readOnly = false;
+  titleEl.style.opacity = '';
+}
+
+
+async function submitCreatePlan(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const titleEl = document.getElementById('cpTitle');
+  const title   = titleEl.value.trim();
+  const agent   = document.getElementById('cpAgent').value;
+  const msg     = document.getElementById('cpMsg');
+  const resumeId = titleEl.dataset.resumeId || '';
+
+  if (!title) {
+    msg.textContent = 'Please enter a plan title or Jira link.';
+    msg.style.color = 'var(--red)';
+    msg.style.display = '';
+    return;
+  }
+
+  const mode = document.getElementById('cpModeSelect')?.value || 'direct';
+
+  // ── Resume path: folder already exists, no reserve needed ──
+  if (resumeId) {
+    closeCreatePlanModal();
+    _launchPlanTerminal(resumeId, agent, resumeId, mode);
+    return;
+  }
+
+  // ── Fresh plan: reserve slug from server first ──
+  msg.textContent = 'Reserving plan folder…';
+  msg.style.color = 'var(--text-muted)';
+  msg.style.display = '';
+  try {
+    const res = await fetch('/api/plans/reserve', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      msg.textContent = err.detail || 'Failed to reserve plan folder.';
+      msg.style.color = 'var(--red)';
+      return;
+    }
+    const { plan_slug } = await res.json();
+    closeCreatePlanModal();
+    _launchPlanTerminal(title, agent, plan_slug, mode);
+  } catch (err) {
+    msg.textContent = err.message || 'Network error.';
+    msg.style.color = 'var(--red)';
+  }
+}
+
+function _launchPlanTerminal(title, agent, planSlug, mode) {
+  _termMode = mode || 'direct';
+  _planSlugRun = planSlug;
+  document.getElementById('plansMain').style.display = 'none';
+  _rpShow();
+
+  // pin terminal to exactly cover the content area
+  const rect = document.querySelector('.content').getBoundingClientRect();
+  const tv = document.getElementById('planTermView');
+  tv.style.top    = rect.top + 'px';
+  tv.style.left   = rect.left + 'px';
+  tv.style.width  = rect.width + 'px';
+  tv.style.bottom = '16px';
+  tv.style.display = '';
+
+  const container = document.getElementById('plan-term-container');
+  container.innerHTML = '';
+
+  _term = new Terminal({
+    cursorBlink: true,
+    cursorStyle: 'block',
+    fontSize: 11,
+    fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+    lineHeight: 1.0,
+    letterSpacing: 0,
+    scrollback: 5000,
+    theme: {
+      background:          '#000000',
+      foreground:          '#ffffff',
+      cursor:              '#ffffff',
+      cursorAccent:        '#000000',
+      selectionBackground: 'rgba(255,255,255,0.3)',
+      black:               '#000000',
+      red:                 '#cd3131',
+      green:               '#0dbc79',
+      yellow:              '#e5e510',
+      blue:                '#2472c8',
+      magenta:             '#bc3fbc',
+      cyan:                '#11a8cd',
+      white:               '#ffffff',
+      brightBlack:         '#666666',
+      brightRed:           '#f14c4c',
+      brightGreen:         '#23d18b',
+      brightYellow:        '#f5f543',
+      brightBlue:          '#3b8eea',
+      brightMagenta:       '#d670d6',
+      brightCyan:          '#29b8db',
+      brightWhite:         '#ffffff',
+    },
+  });
+  _fit = new FitAddon.FitAddon();
+  _term.loadAddon(_fit);
+  _term.open(container);
+  _fit.fit();
+
+  container.addEventListener('wheel', e => {
+    e.preventDefault(); e.stopPropagation();
+    const vp = container.querySelector('.xterm-viewport');
+    if (vp) vp.scrollTop += e.deltaMode === 0 ? e.deltaY : e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY * vp.clientHeight;
+  }, { capture: true, passive: false });
+
+  new ResizeObserver(() => { try { _fit && _fit.fit(); } catch(_){} }).observe(container);
+
+  _term.onResize(({cols, rows}) => {
+    if (_ws && _ws.readyState === WebSocket.OPEN)
+      _ws.send(JSON.stringify({type:'resize', cols, rows}));
+  });
+  _term.onData(data => {
+    if (_ws && _ws.readyState === WebSocket.OPEN)
+      _ws.send(new TextEncoder().encode(data).buffer);
+  });
+
+  _startStatusPoll();
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const agentQ = encodeURIComponent(agent || 'claude');
+  const slugQ  = encodeURIComponent(_planSlugRun || '');
+  _ws = new WebSocket(`${proto}://${location.host}/ws/plan-terminal?agent=${agentQ}&plan_slug=${slugQ}&mode=${encodeURIComponent(_termMode)}`);
+  _ws.binaryType = 'arraybuffer';
+  _ws.onopen = () => {
+    _fit.fit();
+    _ws.send(JSON.stringify({type:'resize', cols:_term.cols, rows:_term.rows}));
+    _rpSetStatus(`${agent === 'opencode' ? 'OpenCode' : 'Claude'} starting…`);
+    const startupDelay = agent === 'opencode' ? 7000 : 4000;
+    setTimeout(() => {
+      if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+      const cmd = `/create-plan ${title}`;
+      _ws.send(new TextEncoder().encode(cmd).buffer);
+      setTimeout(() => {
+        if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+        _ws.send(new TextEncoder().encode('\r').buffer);
+        if (agent === 'opencode') {
+          setTimeout(() => {
+            if (_ws && _ws.readyState === WebSocket.OPEN)
+              _ws.send(new TextEncoder().encode('\r').buffer);
+          }, 500);
+        }
+        _rpSetStatus('Waiting for phase 1: Brainstorming…');
+      }, 300);
+    }, startupDelay);
+  };
+  let _wq = [], _rafId = null;
+  function _flush() {
+    _rafId = null;
+    if (!_wq.length) return;
+    const chunks = _wq.splice(0);
+    let total = 0; for (const c of chunks) total += c.length;
+    const out = new Uint8Array(total); let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    _term.write(out);
+  }
+  _ws.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) {
+      _wq.push(new Uint8Array(e.data));
+      if (!_rafId) _rafId = requestAnimationFrame(_flush);
+    } else {
+      _term.write(e.data);
+    }
+  };
+  _ws.onclose = () => {
+    _term.write('\r\n\x1b[33m[Done — click "← Back to Plans" to see your new plan]\x1b[0m\r\n');
+    if (!_phaseDone) { _phaseDone = true; _curPhase = PLAN_PHASES.length; _renderPhases(); }
+    _rpSetStatus('Plan created ✓', true);
+    clearInterval(_elapsedTimer);
+  };
+}
+
+function closePlanTerminal() {
+  if (_ws) { _ws.close(); _ws = null; }
+  if (_term) { _term.dispose(); _term = null; }
+  document.getElementById('planTermView').style.display = 'none';
+  document.getElementById('plansMain').style.display = '';
+  _rpHide();
+  location.reload();
+}
+
+/* ── Resume Plan — reuses the existing plans/<id>/ folder ── */
+function resumePlan(planId) {
+  // Reuse the create-plan modal — the title field is locked to the plan id
+  // so the user only picks the agent. Skip the /api/plans/reserve call and
+  // send /create-plan <plan_id> to trigger the skill's resume flow.
+  const titleEl = document.getElementById('cpTitle');
+  const msgEl   = document.getElementById('cpMsg');
+  titleEl.value = planId;
+  titleEl.dataset.resumeId = planId;
+  titleEl.readOnly = true;
+  titleEl.style.opacity = '.7';
+  document.getElementById('cpModalTitle').textContent = 'Resume Plan';
+  document.getElementById('cpSubmitBtn').textContent  = 'Resume Plan';
+  msgEl.textContent = `Resuming ${planId} — pick an agent to attach.`;
+  msgEl.style.color = 'var(--text-muted)';
+  msgEl.style.display = '';
+  document.getElementById('createPlanBackdrop').style.display = '';
+  document.getElementById('createPlanModal').style.display   = '';
+}
+
+/* ── Viewer ── */
+const STATUS_CLASS = {
+  DONE: 'bug-status-done', FAILED: 'bug-status-failed',
+  RUNNING: 'bug-status-running', PARTIAL: 'bug-status-running',
+};
+const KIND_COLOR = { backend: 'var(--blue-light)', frontend: 'var(--purple-light)', '': 'var(--text-muted)' };
+
+let _activePlanTab = 'plan';
+
+function switchPlanTab(tab) {
+  _activePlanTab = tab;
+  document.getElementById('planTabPlan').classList.toggle('active', tab === 'plan');
+  document.getElementById('planTabDesign').classList.toggle('active', tab === 'design');
+  document.getElementById('planTabExec').classList.toggle('active', tab === 'exec');
+  document.getElementById('planViewPlan').style.display = tab === 'plan' ? '' : 'none';
+  document.getElementById('planViewDesign').style.display = tab === 'design' ? '' : 'none';
+  document.getElementById('planViewExec').style.display = tab === 'exec' ? '' : 'none';
+}
+
+function _renderDesignMockups(planId, designs) {
+  const el = document.getElementById('designMockupsContent');
+  el.innerHTML = designs.map((filename, i) => {
+    // derive a readable label from filename: design-mockup-hawkeye.html → hawkeye
+    const raw = filename.replace(/^design-mockup-?/, '').replace(/\.html$/, '');
+    const label = raw || 'Design Mockup';
+    const showHeader = designs.length > 1;
+    return `${i > 0 ? '<div style="border-top:2px solid var(--border)"></div>' : ''}
+      ${showHeader ? `<div style="padding:9px 20px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);background:var(--bg-input);border-bottom:1px solid var(--border)">${label}</div>` : ''}
+      <iframe
+        src="/api/plans/${planId}/designs/${filename}"
+        style="width:100%;height:700px;border:none;display:block;background:#fff"
+        loading="lazy"
+        sandbox="allow-same-origin allow-scripts"
+        title="${label}"
+      ></iframe>`;
+  }).join('');
+}
+
+function _renderExecSummary(es) {
+  if (!es) return;
+
+  const KIND_DOT = { backend: 'var(--blue-light)', frontend: 'var(--purple-light)' };
+  const KIND_COL = { backend: 'var(--blue-light)', frontend: 'var(--purple-light)' };
+  const KIND_BG  = { backend: 'rgba(37,99,235,.15)', frontend: 'rgba(124,58,237,.15)' };
+
+  function _dur(a, b) {
+    if (!a || !b) return null;
+    const ms = new Date(b) - new Date(a);
+    if (ms <= 0) return null;
+    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    return h ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  function _verdictBadge(v) {
+    if (!v) return '';
+    if (v === 'approved') return `<span class="exec-verdict exec-verdict-ok">approved</span>`;
+    if (v === 'approved_after_fixes') return `<span class="exec-verdict exec-verdict-fix">approved after fixes</span>`;
+    return `<span class="exec-verdict exec-verdict-fix">${v}</span>`;
+  }
+
+  function _statusBadge(s) {
+    const cls = s === 'completed' ? 'bug-status-done' : s === 'failed' ? 'bug-status-failed' : 'bug-status-badge';
+    return `<span class="bug-status-badge ${cls}">${s||'—'}</span>`;
+  }
+
+  const dur = _dur(es.started_at, es.finished_at);
+  const prs = Object.entries(es.prs || {}).filter(([,u]) => u);
+  const allPrs = Object.entries(es.prs || {});  // include null ones (CodeCommit)
+
+  let html = '<div class="exec-wrap">';
+
+  // ── Overview bar ──
+  html += `<div class="exec-block">
+    <div class="exec-meta-bar">
+      ${_statusBadge(es.status)}
+      ${dur ? `<span class="exec-meta-sep">·</span><span style="font-size:12.5px;color:var(--text-secondary)">${dur}</span>` : ''}
+      ${es.branch ? `<span class="exec-meta-sep">·</span><span class="exec-sha" style="font-size:11.5px">${es.branch}</span>` : ''}
+      ${es.jira_key ? `<span class="exec-meta-sep">·</span><a href="${es.jira_url||'#'}" target="_blank" style="font-size:12.5px;font-weight:600;color:var(--blue-light);text-decoration:none">${es.jira_key}</a>` : ''}
+    </div>
+  </div>`;
+
+  // ── Pull Requests ──
+  if (allPrs.length) {
+    html += `<div class="exec-block">
+      <div class="exec-block-title">Pull Requests</div>
+      <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden">`;
+    allPrs.forEach(([repo, url], i) => {
+      const r = (es.repos||[]).find(r => r.name === repo) || {};
+      const dot = KIND_DOT[r.kind] || 'var(--text-muted)';
+      const col = KIND_COL[r.kind] || 'var(--text-muted)';
+      const bg  = KIND_BG[r.kind]  || 'rgba(255,255,255,.04)';
+      html += `<div class="exec-pr-row" style="${i ? 'border-top:1px solid var(--border);' : ''}padding:8px 12px">
+        <span class="exec-kind-dot" style="background:${dot}"></span>
+        <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);flex:1">${repo}</span>
+        <span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;background:${bg};color:${col};margin-right:10px">${r.kind||'?'}</span>
+        ${url
+          ? `<a href="${url}" target="_blank" style="font-size:12px;font-weight:600;color:var(--blue-light);text-decoration:none;display:flex;align-items:center;gap:4px">
+              PR #${url.split('/').pop()}
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor" style="opacity:.5"><path d="M3.75 2h3.5a.75.75 0 010 1.5h-3.5a.25.25 0 00-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25v-3.5a.75.75 0 011.5 0v3.5A1.75 1.75 0 0112.25 14h-8.5A1.75 1.75 0 012 12.25v-8.5C2 2.784 2.784 2 3.75 2zm6.854-1h4.146a.25.25 0 01.25.25v4.146a.25.25 0 01-.427.177L13.03 4.03 9.28 7.78a.75.75 0 01-1.06-1.06l3.75-3.75-1.543-1.543A.25.25 0 0110.604 1z"/></svg>
+            </a>`
+          : `<span style="font-size:11px;color:var(--text-muted);font-style:italic">CodeCommit</span>`}
+      </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  // ── Implementation tasks (table) ──
+  if (es.tasks && es.tasks.length) {
+    html += `<div class="exec-block">
+      <div class="exec-block-title">Implementation Tasks</div>
+      <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        <table class="exec-table">
+          <thead><tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Repo</th>
+            <th>Agent</th>
+            <th>Commit</th>
+          </tr></thead>
+          <tbody>`;
+    es.tasks.forEach(t => {
+      const sha = t.commit_sha ? t.commit_sha.slice(0,7) : '—';
+      html += `<tr>
+        <td><span class="exec-sha">${t.id}</span></td>
+        <td class="primary">${t.title||'—'}</td>
+        <td><span class="exec-sha">${t.repo||'—'}</span></td>
+        <td><span style="font-size:11px;color:var(--text-muted)">${(t.agent||'—').replace('-developer','')}</span></td>
+        <td><span class="exec-sha">${sha}</span></td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+
+  // ── Review & Fix cycle ──
+  if (es.adhoc_tasks && es.adhoc_tasks.length) {
+    // pair up review + fix tasks per repo
+    const reviews = es.adhoc_tasks.filter(t => t.type === 'review');
+    const fixes   = es.adhoc_tasks.filter(t => t.type !== 'review');
+    const fixByRepo = {};
+    fixes.forEach(f => { fixByRepo[f.repo] = f; });
+
+    html += `<div class="exec-block">
+      <div class="exec-block-title">Review & Fix Cycle</div>
+      <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        <table class="exec-table">
+          <thead><tr>
+            <th>Repo</th>
+            <th>Verdict</th>
+            <th>Findings</th>
+            <th>Fix commit</th>
+          </tr></thead>
+          <tbody>`;
+    reviews.forEach(rv => {
+      const fix = fixByRepo[rv.repo];
+      const sha = fix && fix.commit_sha ? fix.commit_sha.slice(0,7) : '—';
+      html += `<tr>
+        <td class="primary">${rv.repo}</td>
+        <td>${_verdictBadge(rv.verdict)}</td>
+        <td><span style="font-size:12px;color:${rv.blocking_count?'var(--orange)':'var(--text-muted)'}">${rv.blocking_count != null ? rv.blocking_count + ' blocking' : '—'}</span></td>
+        <td><span class="exec-sha">${sha}</span></td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+
+    // findings detail per repo
+    const withFindings = reviews.filter(rv => rv.summary);
+    if (withFindings.length) {
+      html += `<div style="border-top:1px solid var(--border);padding:14px 16px">
+        <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:10px">Findings</div>`;
+      withFindings.forEach(rv => {
+        const fix = fixByRepo[rv.repo];
+        html += `<div class="exec-finding">
+          <div class="exec-finding-repo">
+            ${rv.repo}
+            ${_verdictBadge(rv.verdict)}
+            ${rv.blocking_count != null ? `<span style="font-size:11px;color:var(--text-muted)">${rv.blocking_count} blocking</span>` : ''}
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:${fix?'6px':'0'}">${rv.summary}</div>
+          ${fix && fix.summary ? `<div style="font-size:12px;color:var(--green);padding:5px 8px;background:var(--green-dim);border-radius:4px"><strong style="color:var(--green)">Fix:</strong> ${fix.summary}</div>` : ''}
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  // ── Post-merge steps ──
+  if (es.post_merge_steps && es.post_merge_steps.length) {
+    html += `<div class="exec-block">
+      <div class="exec-block-title">Post-Merge Steps</div>
+      <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px">`;
+    es.post_merge_steps.forEach((step, i) => {
+      // highlight inline backtick commands
+      const rendered = step.replace(/`([^`]+)`/g, '<code class="exec-step code">$1</code>');
+      html += `<div class="exec-step">
+        <span class="exec-step-num">${i+1}</span>
+        <span>${rendered}</span>
+      </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  html += '</div>';
+  document.getElementById('execSummaryContent').innerHTML = html;
+}
+
+function _renderRpExecLinks(es) {
+  const linksEl = document.getElementById('rpExecLinks');
+  if (!es) { linksEl.style.display = 'none'; return; }
+  const prs = Object.entries(es.prs || {}).filter(([,u]) => u);
+  if (!prs.length) { linksEl.style.display = 'none'; return; }
+  linksEl.style.display = '';
+  document.getElementById('rpExecPrs').innerHTML = prs.map(([repo, url]) =>
+    `<a href="${url}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);text-decoration:none;padding:5px 0">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="var(--green)" style="flex-shrink:0"><path d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/></svg>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${repo}</span>
+      <span style="font-size:11px;color:var(--text-muted);flex-shrink:0">#${url.split('/').pop()}</span>
+    </a>`
+  ).join('');
+}
+
+function openPlan(planId) {
+  const plan = _plans.find(p => p.plan_id === planId);
+
+  // ── main content ──
+  document.getElementById('plansViewerTitle').textContent = plan ? (plan.name || planId) : planId;
+  const raw = plan ? (plan.plan_content || '') : '';
+  const isDraft = plan && plan.is_draft_log;
+  const isPartial = plan && plan.status === 'PARTIAL';
+  let html = '';
+  if (isDraft) {
+    html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:6px;margin-bottom:16px;font-size:12px;color:var(--yellow,#eab308)">
+      <span style="font-weight:700">Planning in progress</span>
+      <span style="color:var(--text-muted)">·</span>
+      <span style="color:var(--text-muted)">Log below updates live as the conversation continues. Plan is not yet complete.</span>
+    </div>`;
+  } else if (isPartial) {
+    html += `<div style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;margin-bottom:16px;font-size:12px;color:var(--text-muted)">
+      Plan creation not yet started. Click <strong>Resume Creating</strong> to continue.
+    </div>`;
+  }
+  html += raw ? marked.parse(raw) : (!isPartial ? '<p style="color:var(--text-muted);font-size:13px">(no content)</p>' : '');
+  document.getElementById('plansViewerContent').innerHTML = html;
+
+  // ── tabs ──
+  const hasExec   = !!(plan && plan.execution_summary);
+  const hasDesign = !!(plan && plan.designs && plan.designs.length);
+  document.getElementById('planTabExec').style.display    = hasExec   ? '' : 'none';
+  document.getElementById('planTabDesign').style.display  = hasDesign ? '' : 'none';
+  switchPlanTab('plan');
+
+  // ── design mockups ──
+  if (hasDesign) _renderDesignMockups(plan.plan_id, plan.designs);
+
+  // ── execution summary panel ──
+  if (hasExec) _renderExecSummary(plan.execution_summary);
+
+  // ── right panel ──
+  if (plan) {
+    const st = plan.status || 'DRAFT';
+    const STATUS_COL = { DONE:'var(--green)', RUNNING:'var(--blue-light)', PARTIAL:'var(--orange)', FAILED:'var(--red)' };
+
+    document.getElementById('rpPlanName').textContent          = plan.name || plan.plan_id;
+    document.getElementById('rpPlanStatus').textContent  = st;
+    document.getElementById('rpPlanStatus').style.color  = STATUS_COL[st] || 'var(--text-secondary)';
+    document.getElementById('rpPlanId').textContent            = plan.plan_id;
+    document.getElementById('rpPlanId').title                  = plan.plan_id;
+
+    const raw_date = (plan.created_at || '').slice(0, 10);
+    document.getElementById('rpPlanDate').textContent = raw_date
+      ? new Date(raw_date + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+      : '—';
+
+    // repos — dot + name + kind pill
+    const KIND_DOT = { backend: 'var(--blue-light)', frontend: 'var(--purple-light)' };
+    const KIND_BG  = { backend: 'rgba(37,99,235,.15)', frontend: 'rgba(124,58,237,.15)' };
+    const reposEl  = document.getElementById('rpPlanRepos');
+    if (plan.repos && plan.repos.length) {
+      reposEl.innerHTML = plan.repos.map(r => {
+        const dot = KIND_DOT[r.kind] || 'var(--text-muted)';
+        const col = KIND_COLOR[r.kind] || 'var(--text-muted)';
+        const bg  = KIND_BG[r.kind]   || 'rgba(255,255,255,.05)';
+        return `<div style="display:flex;align-items:center;gap:8px">
+          <span style="width:6px;height:6px;border-radius:50%;background:${dot};flex-shrink:0"></span>
+          <span style="font-size:12.5px;color:var(--text-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.name}</span>
+          <span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;background:${bg};color:${col};flex-shrink:0">${r.kind||'?'}</span>
+        </div>`;
+      }).join('');
+    } else {
+      reposEl.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">—</span>';
+    }
+
+    // tasks — big total + mini bar rows
+    const tasksEl = document.getElementById('rpPlanTasks');
+    const counts  = plan.task_counts_by_repo || {};
+    const total   = plan.task_count || 0;
+    document.getElementById('rpPlanTaskTotal').textContent = total || '—';
+    if (total) {
+      tasksEl.innerHTML = Object.entries(counts).map(([repo, n]) => {
+        const pct = Math.round((n / total) * 100);
+        return `<div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+            <span style="font-size:11.5px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%">${repo}</span>
+            <span style="font-size:11px;font-weight:700;font-family:monospace;color:var(--text-primary)">${n}</span>
+          </div>
+          <div style="height:3px;border-radius:2px;background:var(--bg-input);overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--blue-light),var(--purple-light));border-radius:2px"></div>
+          </div>
+        </div>`;
+      }).join('');
+    } else {
+      tasksEl.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No tasks yet</span>';
+    }
+
+    _renderRpExecLinks(plan.execution_summary || null);
+  }
+
+  document.getElementById('rpDefault').style.display     = 'none';
+  document.getElementById('rpPlanDetail').style.display  = '';
+  document.getElementById('plansListHeader').style.display = 'none';
+  document.getElementById('plansList').style.display       = 'none';
+  document.getElementById('plansViewer').style.display     = 'flex';
+  document.getElementById('plansMsg').style.display        = 'none';
+}
+
+function closePlanViewer() {
+  document.getElementById('plansViewer').style.display     = 'none';
+  document.getElementById('plansListHeader').style.display = '';
+  document.getElementById('plansList').style.display       = '';
+  document.getElementById('rpPlanDetail').style.display    = 'none';
+  document.getElementById('rpDefault').style.display       = '';
+  document.getElementById('rpExecLinks').style.display     = 'none';
+  // clear iframes to stop them loading in background
+  document.getElementById('designMockupsContent').innerHTML = '';
+}
+
+/* ── Execute Plan ── */
+let _execPlanId  = null;
+let _execAction  = 'execute';
+const _EXEC_LABELS = {
+  execute: { modal: 'Execute Plan',  btn: 'Execute Plan' },
+  resume:  { modal: 'Resume Plan',   btn: 'Resume Plan'  },
+  rerun:   { modal: 'Re-run Plan',   btn: 'Re-run'       },
+};
+
+function executePlan(planId, action, savedAgent) {
+  _execPlanId = planId;
+  _execAction = action || 'execute';
+  document.getElementById('epPlanId').value = planId;
+  const msg = document.getElementById('epMsg');
+  msg.textContent = '';
+  msg.style.display = 'none';
+  const btn    = document.getElementById('epSubmitBtn');
+  const lbl    = _EXEC_LABELS[_execAction] || _EXEC_LABELS.execute;
+  btn.disabled = false;
+  btn.textContent = lbl.btn;
+  document.querySelector('#execPlanModal .modal-header h3').textContent = lbl.modal;
+
+  // Pre-select the agent that last ran this plan, if available
+  if (savedAgent) {
+    const sel = document.getElementById('epAgent');
+    if (sel) {
+      const opt = [...sel.options].find(o => o.value === savedAgent);
+      if (opt) sel.value = savedAgent;
+    }
+  }
+
+  document.getElementById('execPlanBackdrop').style.display = '';
+  document.getElementById('execPlanModal').style.display = '';
+}
+
+function closeExecutePlanModal() {
+  document.getElementById('execPlanBackdrop').style.display = 'none';
+  document.getElementById('execPlanModal').style.display = 'none';
+  _execPlanId = null;
+}
+
+async function submitExecutePlan() {
+  const planId = _execPlanId;
+  const agent  = document.getElementById('epAgent').value;
+  const msg    = document.getElementById('epMsg');
+  const btn    = document.getElementById('epSubmitBtn');
+
+  if (!planId) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  msg.textContent = '';
+  msg.style.display = 'none';
+
+  try {
+    const r = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent,
+        repositories: [],
+        session_type: 'execute-plan',
+        start_command: `/execute-plan ${planId}`,
+      }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      closeExecutePlanModal();
+      window.location.href = `/sessions/${d.session_id}`;
+    } else {
+      const err = await r.json().catch(() => ({}));
+      msg.textContent = err.detail || `Error ${r.status}`;
+      msg.style.color = 'var(--red)';
+      msg.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Execute Plan';
+    }
+  } catch (e) {
+    msg.textContent = 'Network error: ' + e.message;
+    msg.style.color = 'var(--red)';
+    msg.style.display = '';
+    btn.disabled = false;
+    btn.textContent = 'Execute Plan';
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeExecutePlanModal();
+    closeCreatePlanModal();
+  }
+});
+
+/* ── Filters ── */
+function plansFilter(q) {
+  q = q.trim().toLowerCase();
+  document.querySelectorAll('#plansTable tbody tr').forEach(row => {
+    row.style.display = (!q || (row.dataset.search || '').toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
+function plansStatusFilter() {
+  const active = [...document.querySelectorAll('.plan-st-cb:checked')].map(c => c.dataset.status);
+  document.querySelectorAll('#plansTable tbody tr').forEach(row => {
+    const badge = row.querySelector('.bug-status-badge');
+    const st    = badge ? badge.textContent.trim() : '';
+    row.style.display = (!active.length || active.includes(st)) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

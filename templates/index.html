@@ -1,0 +1,931 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Dashboard <span class="bc-sep">/</span> Sessions{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-primary" id="newSessionBtn" onclick="openNewSessionModal()">
+  <svg viewBox="0 0 20 20" width="14" height="14" style="margin-right:6px"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  New Session
+</button>
+{% endblock %}
+
+{% macro bug_status_pill(status) %}
+  {% if status == 'DONE' %}
+    <span class="status-pill pill-green">✓ Done</span>
+  {% elif status == 'FAILED' %}
+    <span class="status-pill pill-red">✗ Failed</span>
+  {% elif status == 'BLOCKED' %}
+    <span class="status-pill pill-orange">⊘ Blocked</span>
+  {% elif status in ['PR_CREATING','PR_CREATED','JIRA_UPDATING','JIRA_UPDATED'] %}
+    <span class="status-pill pill-purple">↑ {{ status | replace('_',' ') | title }}</span>
+  {% elif status in ['TESTING','TESTED'] %}
+    <span class="status-pill pill-blue">⚙ {{ status | title }}</span>
+  {% elif status in ['IMPLEMENTING','IMPLEMENTED'] %}
+    <span class="status-pill pill-purple">✎ {{ status | title }}</span>
+  {% elif status in ['PLANNING','PLANNED','DIAGNOSING','DIAGNOSED'] %}
+    <span class="status-pill pill-blue">◈ {{ status | title }}</span>
+  {% elif status in ['BRANCHING','BRANCHED','WORKTREE_READY'] %}
+    <span class="status-pill pill-blue">⎇ {{ status | replace('_',' ') | title }}</span>
+  {% elif status in ['SYNCING','SYNCED','JIRA_CREATING','JIRA_CREATED','QUEUED'] %}
+    <span class="status-pill pill-yellow">↻ {{ status | replace('_',' ') | title }}</span>
+  {% elif status == 'FETCHED' %}
+    <span class="status-pill pill-gray">● Fetched</span>
+  {% else %}
+    <span class="status-pill pill-gray">{{ status }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+
+<!-- ── Stats Row ── -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">Total Sessions</div>
+    <div class="stat-value">{{ stats.total }}</div>
+  </div>
+  <div class="stat-card stat-active">
+    <div class="stat-label">Active Sessions</div>
+    <div class="stat-value">{{ stats.active }}
+      <span class="stat-dot live-dot"></span>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">AI Sessions</div>
+    <div class="stat-value">{{ stats.ai_sessions }}</div>
+    <div class="stat-sub">Auto-fixing</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Manual Sessions</div>
+    <div class="stat-value">{{ stats.manual_sessions }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Completed Today</div>
+    <div class="stat-value">{{ stats.completed }}</div>
+  </div>
+  <div class="stat-card {% if stats.healthy %}stat-healthy{% else %}stat-error{% endif %}">
+    <div class="stat-label">System Status</div>
+    <div class="stat-value system-status">
+      <span class="status-dot {% if stats.healthy %}dot-green{% else %}dot-red{% endif %}"></span>
+      {% if stats.healthy %}Healthy{% else %}Degraded{% endif %}
+    </div>
+    <div class="stat-sub">{% if stats.healthy %}All systems operational{% else %}tmux not found{% endif %}</div>
+  </div>
+</div>
+
+<!-- ── Pipeline ── -->
+{% if pipeline_bugs or pipeline_plans %}
+<div class="section-header" style="margin-top:28px">
+  <h2 class="section-title">Pipeline <span class="count-badge">{{ (pipeline_bugs | length) + (pipeline_plans | length) }}</span></h2>
+  <a href="/pipeline" class="link-small">View pipeline ↗</a>
+</div>
+
+{% if pipeline_bugs %}
+<div class="table-wrap">
+<table class="sessions-table" id="bugsTable">
+  <thead>
+    <tr>
+      <th>Bug</th>
+      <th>Source</th>
+      <th>Title</th>
+      <th>Pipeline Status</th>
+      <th>Progress</th>
+      <th>Jira / PR</th>
+      <th>Session</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for b in pipeline_bugs %}
+    {% set st = b.status_data %}
+    {% set sess = b.active_session %}
+    <tr class="tr-bug" data-search="{{ b.bug_id }} {{ b.title }} {{ b.project }}">
+      <td class="td-mono">
+        <a href="{{ b.source_url or '#' }}" target="_blank" class="sess-link" title="Open in {{ b.source | title }}">{{ b.bug_id }}</a>
+      </td>
+      <td>
+        {% if b.source == 'sentry' %}
+        <span class="badge badge-sentry badge-sm">SENTRY</span>
+        {% else %}
+        <span class="badge badge-jira badge-sm">JIRA</span>
+        {% endif %}
+      </td>
+      <td class="td-name" title="{{ b.title }}">{{ b.title | truncate(50) }}</td>
+      <td>
+        {% if st %}{{ bug_status_pill(st.status) }}{% else %}<span class="status-pill pill-gray">● Fetched</span>{% endif %}
+      </td>
+      <td>
+        <div class="bp-bar">
+          {% set cur_status = st.status if st else 'FETCHED' %}
+          {% set seg_labels = ['Fetch','Sync','Jira','Branch','Worktree','Diagnose','Plan','Implement','Test','PR','Jira Upd','Done'] %}
+          {% set seg_statuses = [['FETCHED','QUEUED'],['SYNCING','SYNCED'],['JIRA_CREATING','JIRA_CREATED'],['BRANCHING','BRANCHED'],['WORKTREE_READY'],['DIAGNOSING','DIAGNOSED'],['PLANNING','PLANNED'],['IMPLEMENTING','IMPLEMENTED'],['TESTING','TESTED','TEST_SKIPPED'],['PR_CREATING','PR_CREATED'],['JIRA_UPDATING','JIRA_UPDATED'],['DONE']] %}
+          {% set cur_seg = namespace(idx=-1) %}
+          {% for segs in seg_statuses %}{% if cur_status in segs %}{% set cur_seg.idx = loop.index0 %}{% endif %}{% endfor %}
+          {% for segs in seg_statuses %}
+          <span class="bp-seg
+            {% if cur_status == 'FAILED' %}bp-fail
+            {% elif cur_status == 'BLOCKED' and loop.index0 < cur_seg.idx %}bp-done
+            {% elif cur_status == 'BLOCKED' and loop.index0 == cur_seg.idx %}bp-blocked
+            {% elif loop.index0 < cur_seg.idx %}bp-done
+            {% elif loop.index0 == cur_seg.idx %}bp-current
+            {% endif %}" title="{{ seg_labels[loop.index0] }}"></span>
+          {% endfor %}
+        </div>
+      </td>
+      <td>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          {% if st and st.jira_ticket %}
+          <a href="{{ (jira_base_url + '/browse/' + st.jira_ticket) if jira_base_url else '#' }}" target="_blank" class="bug-link-pill bug-link-jira">{{ st.jira_ticket }}</a>
+          {% endif %}
+          {% if st and st.pr_url %}
+          <a href="{{ st.pr_url }}" target="_blank" class="bug-link-pill bug-link-pr">PR ↗</a>
+          {% endif %}
+        </div>
+      </td>
+      <td>
+        {% if sess %}
+        <a href="/sessions/{{ sess.session_id }}" class="sess-link">{{ sess.session_id }}</a>
+        {% else %}—{% endif %}
+      </td>
+      <td class="td-actions">
+        {% if sess %}
+        <a href="/sessions/{{ sess.session_id }}" class="btn btn-xs btn-ghost">View Session</a>
+        <button class="btn btn-xs btn-danger" onclick="closePipelineSession('{{ sess.session_id }}')">Close</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if pipeline_plans %}
+<div class="table-wrap" style="margin-top:{% if pipeline_bugs %}16px{% else %}0{% endif %}">
+<table class="sessions-table" id="plansTable">
+  <thead>
+    <tr>
+      <th>Plan</th>
+      <th>Status</th>
+      <th>Tasks</th>
+      <th>Repos</th>
+      <th>Session</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for plan in pipeline_plans %}
+    {% set st = plan.status or 'DRAFT' %}
+    {% set sess = plan.active_session %}
+    <tr class="tr-bug" data-search="{{ plan.plan_id }} {{ plan.name }}">
+      <td>
+        <div style="font-weight:600;font-size:13px;color:var(--text-primary)">{{ plan.name or plan.plan_id }}</div>
+        <div class="td-mono" style="font-size:11px;color:var(--text-muted);margin-top:2px">{{ plan.plan_id }}</div>
+      </td>
+      <td>
+        {% if sess %}
+          {% set s_st = sess.session_status %}
+          {% if s_st == 'ACTIVE' %}
+            <span class="status-pill pill-blue">▶ Running</span>
+          {% else %}
+            <span class="status-pill pill-yellow">⏱ {{ s_st | title }}</span>
+          {% endif %}
+        {% elif st == 'PARTIAL' %}
+          <span class="status-pill pill-orange">⏸ Partial</span>
+        {% elif st == 'APPROVED' %}
+          <span class="status-pill pill-green">✓ Approved</span>
+        {% elif st == 'FAILED' %}
+          <span class="status-pill pill-red">✗ Failed</span>
+        {% else %}
+          <span class="status-pill pill-gray">{{ st }}</span>
+        {% endif %}
+      </td>
+      <td class="td-mono">{{ plan.task_count or '—' }}</td>
+      <td>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          {% if plan.repos %}
+          {% for r in plan.repos[:3] %}
+          <span style="font-size:11px;color:{% if r.kind == 'backend' %}var(--blue-light){% elif r.kind == 'frontend' %}var(--purple-light){% else %}var(--text-muted){% endif %}">{{ r.name }}</span>
+          {% endfor %}
+          {% if plan.repos | length > 3 %}
+          <span style="font-size:11px;color:var(--text-muted)">+{{ (plan.repos | length) - 3 }} more</span>
+          {% endif %}
+          {% else %}—{% endif %}
+        </div>
+      </td>
+      <td>
+        {% if sess %}
+        <a href="/sessions/{{ sess.session_id }}" class="sess-link">{{ sess.session_id }}</a>
+        {% else %}—{% endif %}
+      </td>
+      <td class="td-actions">
+        {% if sess %}
+        <a href="/sessions/{{ sess.session_id }}" class="btn btn-xs btn-ghost">View Session</a>
+        {% elif st == 'PARTIAL' %}
+        <a href="/plans" class="btn btn-xs btn-primary">Resume Plan</a>
+        {% elif st == 'FAILED' %}
+        <a href="/plans" class="btn btn-xs btn-ghost">Re-run</a>
+        {% else %}
+        <a href="/plans" class="btn btn-xs btn-primary">Execute Plan</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% endif %}
+
+<!-- ── Active / Stale Sessions ── -->
+{% set active_sessions = sessions | selectattr("session_status", "in", ["ACTIVE", "STALE"]) | list %}
+{% if active_sessions %}
+<div class="section-header">
+  <h2 class="section-title">Running Sessions <span class="count-badge">{{ active_sessions | length }}</span></h2>
+  <a href="#all-sessions" class="link-small">View All Sessions ↓</a>
+</div>
+
+<div class="cards-grid">
+  {% for s in active_sessions %}
+  {% set bd = s.bug_data %}
+  {% set is_stale = s.session_status == 'STALE' %}
+  <div class="session-card {% if is_stale %}card-stale{% elif s.agent == 'claude' %}card-purple{% else %}card-blue{% endif %}"
+       onclick="selectSession('{{ s.session_id }}')"
+       data-session="{{ s.session_id }}">
+    <div class="card-header">
+      <div class="card-badges">
+        {% set stype = (s.session_type or '') | lower | replace(' ', '-') %}
+        {% if stype == 'sync-bugs' %}<span class="badge badge-sentry">SYNC</span>
+        {% elif stype == 'list-bugs' %}<span class="badge badge-manual">LIST BUGS</span>
+        {% elif stype in ['fix-bug', 'fix-bugs'] %}<span class="badge badge-ai">AI BUG FIX</span>
+        {% elif s.agent == 'claude' %}<span class="badge badge-ai">AI BUG FIX</span>
+        {% else %}<span class="badge badge-manual">MANUAL</span>
+        {% endif %}
+        {% if is_stale %}
+        <span class="badge badge-stale">⏱ STALE</span>
+        {% else %}
+        <span class="badge badge-running">
+          <span class="live-dot"></span> RUNNING
+        </span>
+        {% endif %}
+      </div>
+      <div class="card-header-actions">
+        <button class="card-close-btn" onclick="event.stopPropagation(); closeSession('{{ s.session_id }}')" title="Close session">✕</button>
+        <a href="/sessions/{{ s.session_id }}" class="card-open-btn" onclick="event.stopPropagation()" title="Open terminal">
+          <svg viewBox="0 0 16 16" width="14" height="14"><path d="M6 3H3v10h10v-3M9 3h4v4M13 3L7 9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="card-title">
+      {% set stype = (s.session_type or '') | lower | replace(' ', '-') %}
+      {% if s.bug_id %}{{ s.bug_id }}
+      {% elif stype == 'sync-bugs' %}Syncing Bugs…
+      {% elif stype == 'list-bugs' %}Listing Bugs…
+      {% else %}{{ s.session_id }}{% endif %}
+      {% if bd and bd.current_step %} — {{ bd.current_step | replace('_', ' ') | title }}{% endif %}
+    </div>
+
+    <div class="card-meta">
+      <div class="meta-row">
+        <span class="meta-label">Developer</span>
+        <span class="meta-val">{{ s.agent }}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Repository</span>
+        <span class="meta-val">{{ s.repository }}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Started</span>
+        <span class="meta-val">{{ s.created_at[:16].replace('T', ' ') }}</span>
+      </div>
+      {% if bd %}
+      <div class="meta-row">
+        <span class="meta-label">Step</span>
+        <span class="meta-val">{{ bd.current_step or bd.status }}</span>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if s.terminal_preview %}
+    <div class="card-terminal">
+      <div class="ct-header">
+        <span class="ct-dot ct-red"></span><span class="ct-dot ct-yellow"></span><span class="ct-dot ct-green"></span>
+        <span class="ct-title">{{ s.tmux_session }}</span>
+      </div>
+      <pre class="ct-body">{{ s.terminal_preview[-800:] }}</pre>
+    </div>
+    {% endif %}
+
+    {% if bd %}
+    <div class="card-progress">
+      <div class="bp-bar" style="flex:1">
+        {% set seg_labels = ['Fetch','Sync','Jira','Branch','Worktree','Diagnose','Plan','Implement','Test','PR','Jira Upd','Done'] %}
+        {% set seg_statuses = [['FETCHED','QUEUED'],['SYNCING','SYNCED'],['JIRA_CREATING','JIRA_CREATED'],['BRANCHING','BRANCHED'],['WORKTREE_READY'],['DIAGNOSING','DIAGNOSED'],['PLANNING','PLANNED'],['IMPLEMENTING','IMPLEMENTED'],['TESTING','TESTED'],['PR_CREATING','PR_CREATED'],['JIRA_UPDATING','JIRA_UPDATED'],['DONE']] %}
+        {% set cur_seg = namespace(idx=0) %}
+        {% for segs in seg_statuses %}{% if bd.status in segs %}{% set cur_seg.idx = loop.index0 %}{% endif %}{% endfor %}
+        {% for segs in seg_statuses %}
+        <span class="bp-seg {% if loop.index0 < cur_seg.idx %}bp-done{% elif loop.index0 == cur_seg.idx %}{% if bd.status == 'FAILED' %}bp-fail{% elif bd.status == 'BLOCKED' %}bp-blocked{% else %}bp-current{% endif %}{% endif %}" title="{{ seg_labels[loop.index0] }}"></span>
+        {% endfor %}
+      </div>
+      <span class="cp-label">{{ bd.status | replace('_',' ') }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Interrupted Sessions ── -->
+{% set interrupted_sessions = sessions | selectattr("session_status", "equalto", "INTERRUPTED") | list %}
+{% if interrupted_sessions %}
+<div class="section-header" style="margin-top:32px">
+  <h2 class="section-title">Interrupted <span class="count-badge count-orange">{{ interrupted_sessions | length }}</span></h2>
+</div>
+<div class="cards-grid">
+  {% for s in interrupted_sessions %}
+  {% set bd = s.bug_data %}
+  <div class="session-card card-interrupted" data-session="{{ s.session_id }}" onclick="selectSession('{{ s.session_id }}')">
+    <div class="card-header">
+      <div class="card-badges">
+        <span class="badge badge-interrupted">INTERRUPTED</span>
+        <span class="badge badge-tmux-missing">tmux MISSING</span>
+      </div>
+      <a href="/sessions/{{ s.session_id }}" class="card-open-btn" onclick="event.stopPropagation()">↗</a>
+    </div>
+    <div class="card-title">{{ s.bug_id or s.session_id }}</div>
+    <div class="card-meta">
+      <div class="meta-row"><span class="meta-label">Agent</span><span class="meta-val">{{ s.agent }}</span></div>
+      <div class="meta-row"><span class="meta-label">Repository</span><span class="meta-val">{{ s.repository }}</span></div>
+      {% if bd %}<div class="meta-row"><span class="meta-label">Bug Status</span><span class="meta-val">{{ bd.status }}</span></div>{% endif %}
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-sm btn-warning" onclick="event.stopPropagation(); resumeSession('{{ s.session_id }}', '{{ s.agent }}')">Resume</button>
+      <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); newSessionForBug('{{ s.session_id }}', '{{ s.repository }}', '{{ s.agent }}', '{{ s.bug_id or '' }}')">New Session</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Sessions Tabs ── -->
+<div style="margin-top:32px" id="all-sessions">
+  <div class="sess-tabs">
+    <button class="sess-tab active" onclick="switchTab('active', this)">
+      Active <span class="count-badge">{{ sessions | length }}</span>
+    </button>
+    <button class="sess-tab" onclick="switchTab('closed', this)">
+      Closed <span class="count-badge">{{ closed_sessions | length }}</span>
+    </button>
+    <div class="sess-tab-filters" id="active-filters">
+      <input type="text" class="filter-input" id="sessionFilter" placeholder="Search..." oninput="filterTable()">
+      <select class="filter-select" id="statusFilter" onchange="filterTable()">
+        <option value="">All Statuses</option>
+        <option value="ACTIVE">Active</option>
+        <option value="INTERRUPTED">Interrupted</option>
+        <option value="STALE">Stale</option>
+        <option value="DISCONNECTED">Disconnected</option>
+      </select>
+    </div>
+    <div class="sess-tab-filters" id="closed-filters" style="display:none">
+      <input type="text" class="filter-input" id="closedFilter" placeholder="Search..." oninput="filterClosedTable()">
+    </div>
+  </div>
+
+  <!-- Active tab -->
+  <div id="tab-active" class="tab-panel">
+  <div class="table-wrap">
+  <table class="sessions-table" id="sessionsTable">
+    <thead><tr><th>ID</th><th>Session Type</th><th>Bug</th><th>Repository</th><th>Status</th><th>Started</th><th>Agent</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for s in sessions %}
+      {% set bd = s.bug_data %}
+      <tr class="tr-session" data-status="{{ s.session_status }}" data-search="{{ s.session_id }} {{ s.bug_id or '' }} {{ s.repository }} {{ s.agent }}">
+        <td class="td-mono">
+          {% if s.session_status in ['DISCONNECTED','COMPLETED'] %}
+          <span style="color:var(--text-muted)">{{ s.session_id }}</span>
+          {% else %}
+          <a href="/sessions/{{ s.session_id }}" class="sess-link">{{ s.session_id }}</a>
+          {% endif %}
+        </td>
+        <td>
+          {% set st = (s.session_type or '') | lower | replace(' ', '-') %}
+          {% if st == 'fix-bug' %}<span class="badge badge-ai badge-sm">Fix Bug</span>
+          {% elif st == 'fix-bugs' %}<span class="badge badge-ai badge-sm">Fix Bugs</span>
+          {% elif st == 'list-bugs' %}<span class="badge badge-manual badge-sm">List Bugs</span>
+          {% elif st == 'sync-bugs' %}<span class="badge badge-sentry badge-sm">Sync Bugs</span>
+          {% elif st == 'empty' %}<span class="badge badge-manual badge-sm">Empty</span>
+          {% elif s.agent == 'claude' %}<span class="badge badge-ai badge-sm">AI</span>
+          {% else %}<span class="badge badge-manual badge-sm">Manual</span>{% endif %}
+        </td>
+        <td class="td-name">{{ s.bug_id or '—' }}</td>
+        <td class="td-mono-sm">{{ s.repository }}</td>
+        <td>
+          {% if s.session_status == 'ACTIVE' %}<span class="status-pill pill-green">● Active</span>
+          {% elif s.session_status == 'INTERRUPTED' %}<span class="status-pill pill-orange">⚠ Interrupted</span>
+          {% elif s.session_status == 'STALE' %}<span class="status-pill pill-yellow">⏱ Stale</span>
+          {% elif s.session_status == 'DISCONNECTED' %}<span class="status-pill pill-red">✗ Disconnected</span>
+          {% else %}<span class="status-pill pill-gray">{{ s.session_status }}</span>{% endif %}
+          {% if bd %}<span class="status-pill pill-blue" style="margin-left:4px">{{ bd.status }}</span>{% endif %}
+        </td>
+        <td class="td-time">{{ s.created_at[:16].replace('T', ' ') }}</td>
+        <td class="td-agent">{{ s.agent }}</td>
+        <td class="td-actions">
+          {% if s.session_status not in ['DISCONNECTED','COMPLETED'] %}
+          <a href="/sessions/{{ s.session_id }}" class="btn btn-xs btn-ghost">Open</a>
+          {% endif %}
+          {% if s.session_status == 'INTERRUPTED' %}
+          <button class="btn btn-xs btn-warning" onclick="resumeSession('{{ s.session_id }}', '{{ s.agent }}')">Resume</button>
+          {% endif %}
+          {% if s.session_status in ['ACTIVE', 'STALE'] %}
+          <button class="btn btn-xs btn-danger" onclick="closeSession('{{ s.session_id }}')">Close</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="td-empty">No active sessions. Click <strong>+ New Session</strong> to start.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  </div>
+
+  <!-- Closed tab -->
+  <div id="tab-closed" class="tab-panel" style="display:none">
+  <div class="table-wrap">
+  <table class="sessions-table" id="closedTable">
+    <thead><tr><th>ID</th><th>Session Type</th><th>Bug</th><th>Repository</th><th>Status</th><th>Date</th><th>Agent</th></tr></thead>
+    <tbody>
+      {% for s in closed_sessions %}
+      {% set ss = s.get('session_status', 'COMPLETED') %}
+      <tr class="tr-closed" data-search="{{ s.session_id }} {{ s.bug_id or '' }} {{ s.get('repository','') }} {{ s.agent }}">
+        <td class="td-mono" style="color:var(--text-muted)">{{ s.session_id }}</td>
+        <td>
+          {% set st = (s.get('session_type') or '') | lower | replace(' ', '-') %}
+          {% if st == 'fix-bug' %}<span class="badge badge-ai badge-sm">Fix Bug</span>
+          {% elif st == 'fix-bugs' %}<span class="badge badge-ai badge-sm">Fix Bugs</span>
+          {% elif st == 'list-bugs' %}<span class="badge badge-manual badge-sm">List Bugs</span>
+          {% elif st == 'sync-bugs' %}<span class="badge badge-sentry badge-sm">Sync Bugs</span>
+          {% elif st == 'empty' %}<span class="badge badge-manual badge-sm">Empty</span>
+          {% elif s.agent == 'claude' %}<span class="badge badge-ai badge-sm">AI</span>
+          {% else %}<span class="badge badge-manual badge-sm">Manual</span>{% endif %}
+        </td>
+        <td class="td-name">{{ s.bug_id or '—' }}</td>
+        <td class="td-mono-sm">{{ s.get('repository','') or '—' }}</td>
+        <td>
+          {% if ss == 'COMPLETED' %}
+          <span class="status-pill pill-green">✓ Closed</span>
+          {% elif ss == 'DISCONNECTED' %}
+          <span class="status-pill pill-red">✗ Disconnected</span>
+          {% else %}
+          <span class="status-pill pill-gray">{{ ss }}</span>
+          {% endif %}
+        </td>
+        <td class="td-time">{{ s.created_at[:16].replace('T', ' ') }}</td>
+        <td class="td-agent">{{ s.agent }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="td-empty">No closed sessions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block right_panel %}
+
+<!-- placeholder -->
+<div id="rpPlaceholder" style="display:flex;align-items:center;justify-content:center;height:100%;padding:24px">
+  <div class="rp-empty">
+    <svg viewBox="0 0 64 64" width="40" height="40" opacity=".25" fill="currentColor"><rect x="8" y="8" width="48" height="48" rx="4"/><path d="M20 24h24M20 32h16"/></svg>
+    <p>Click a session card to view details,<br>or <strong>+ New Session</strong> to create one.</p>
+  </div>
+</div>
+
+<!-- session detail panel -->
+<div id="rpDetail" style="display:none;overflow-y:auto;height:100%">
+  <div style="padding:14px 12px 6px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div class="rp-section-title">Session Details</div>
+    <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1" onclick="showRpPlaceholder()">✕</button>
+  </div>
+  <div style="padding:10px 12px">
+    <div class="rp-field"><span class="rp-label">ID</span><span class="rp-val" id="rp-id">—</span></div>
+    <div class="rp-field"><span class="rp-label">Type</span><span class="rp-val" id="rp-type">—</span></div>
+    <div class="rp-field"><span class="rp-label">Bug</span><span class="rp-val" id="rp-bug">—</span></div>
+    <div class="rp-field"><span class="rp-label">Repository</span><span class="rp-val" id="rp-repo">—</span></div>
+    <div class="rp-field"><span class="rp-label">Started</span><span class="rp-val" id="rp-started">—</span></div>
+  </div>
+  <div id="rp-bug-section" style="display:none;border-top:1px solid var(--border);padding:10px 12px">
+    <div class="rp-section-title" style="margin-bottom:8px">Bug Pipeline</div>
+    <div class="rp-progress" id="rp-progress"></div>
+    <div style="margin-top:8px">
+      <div class="rp-field"><span class="rp-label">Bug Status</span><span class="rp-val" id="rp-step">—</span></div>
+      <div class="rp-field"><span class="rp-label">Current Step</span><span class="rp-val" id="rp-curstep">—</span></div>
+      <div class="rp-field"><span class="rp-label">Next Step</span><span class="rp-val" id="rp-next">—</span></div>
+      <div class="rp-field" id="rp-jira-row" style="display:none"><span class="rp-label">Jira</span><span class="rp-val" id="rp-jira">—</span></div>
+      <div class="rp-field" id="rp-pr-row" style="display:none"><span class="rp-label">PR</span><span class="rp-val" id="rp-pr">—</span></div>
+    </div>
+  </div>
+  <div style="border-top:1px solid var(--border);padding:10px 12px">
+    <div class="rp-section-title" style="margin-bottom:8px">Actions</div>
+    <div style="display:flex;flex-direction:column;gap:6px" id="rp-actions"></div>
+  </div>
+</div>
+
+<!-- new session form panel -->
+<div id="rpNewSession" style="display:none;overflow-y:auto;height:100%">
+  <div style="padding:14px 12px 6px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div class="rp-section-title">New Session</div>
+    <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1" onclick="showRpPlaceholder()">✕</button>
+  </div>
+  <div style="padding:12px">
+    <form id="newSessForm" onsubmit="submitNewSessPanel(event)">
+
+      <!-- session type -->
+      <div class="form-group">
+        <label>Session Type</label>
+        <select id="nsType" onchange="nsTypeChanged()">
+          <option value="empty">Empty Session</option>
+          <option value="list-bugs">List Bugs</option>
+          <option value="fix-bug">Fix Bug</option>
+          <option value="fix-bugs">Fix Multiple Bugs</option>
+          <option value="sync-bugs">Sync Bugs</option>
+          <option value="code-review">Code Review</option>
+        </select>
+      </div>
+
+      <!-- agent (always shown) -->
+      <div class="form-group">
+        <label>Agent</label>
+        <select id="nsAgent">
+          {% for agent in agents %}
+          <option value="{{ agent.id }}">{{ agent.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- empty / fix-bug / fix-bugs: repository -->
+      <div class="form-group" id="nsRepoGroup">
+        <label>Repository <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <select id="nsRepo">
+          <option value="">— none —</option>
+          {% for repo in repositories %}
+          <option value="{{ repo.id }}">{{ repo.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- fix-bug: single bug id -->
+      <div class="form-group" id="nsBugGroup" style="display:none">
+        <label>Bug ID</label>
+        <input type="text" id="nsBugId" placeholder="e.g. SENTRY-1234 or JAR-56" />
+      </div>
+
+      <!-- fix-bugs: multiple bug ids -->
+      <div class="form-group" id="nsBugsGroup" style="display:none">
+        <label>Bug IDs <span style="color:var(--text-muted);font-weight:400">(comma-separated)</span></label>
+        <input type="text" id="nsBugIds" placeholder="SENTRY-1, JAR-2, SENTRY-3" />
+      </div>
+
+      <!-- code-review: PR link -->
+      <div class="form-group" id="nsPrGroup" style="display:none">
+        <label>PR Link</label>
+        <input type="url" id="nsPrUrl" placeholder="https://github.com/org/repo/pull/123" />
+      </div>
+
+      <!-- sync-bugs fields -->
+      <div id="nsSyncGroup" style="display:none">
+        <div class="form-group">
+          <label>Sources</label>
+          <div class="sync-checks" id="nsSyncSources">
+            {% for src in sync_sources %}
+            <label class="sync-check-label">
+              <input type="checkbox" class="ns-src-cb" value="{{ src.id }}" onchange="nsSyncSourceChanged()">
+              {{ src.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-group" id="nsSyncProjectGroup" style="display:none">
+          <label>Project</label>
+          <select id="nsSyncProject">
+            <option value="">— all projects —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Max bugs <span style="color:var(--text-muted);font-weight:400">(1–100)</span></label>
+          <input type="number" id="nsSyncTop" value="10" min="1" max="100" />
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Syncs today &amp; yesterday only.</div>
+      </div>
+
+      <div id="nsMsgPanel" style="display:none;font-size:12px;margin-bottom:8px"></div>
+      <button type="submit" class="btn btn-primary" style="width:100%" id="nsSubmitBtn">Create Session</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const BUG_STAGES = [
+  {label:'Fetch',    statuses:['FETCHED','QUEUED']},
+  {label:'Sync',     statuses:['SYNCING','SYNCED']},
+  {label:'Jira',     statuses:['JIRA_CREATING','JIRA_CREATED']},
+  {label:'Branch',   statuses:['BRANCHING','BRANCHED']},
+  {label:'Worktree', statuses:['WORKTREE_READY']},
+  {label:'Diagnose', statuses:['DIAGNOSING','DIAGNOSED']},
+  {label:'Plan',     statuses:['PLANNING','PLANNED']},
+  {label:'Implement',statuses:['IMPLEMENTING','IMPLEMENTED']},
+  {label:'Test',     statuses:['TESTING','TESTED']},
+  {label:'PR',       statuses:['PR_CREATING','PR_CREATED']},
+  {label:'Jira Upd', statuses:['JIRA_UPDATING','JIRA_UPDATED']},
+  {label:'Done',     statuses:['DONE']},
+];
+
+function stageIndex(status) {
+  for (let i = 0; i < BUG_STAGES.length; i++) {
+    if (BUG_STAGES[i].statuses.includes(status)) return i;
+  }
+  return -1;
+}
+
+// Refresh dashboard status every 8s
+setInterval(async () => {
+  try {
+    const r = await fetch('/api/sessions');
+    const data = await r.json();
+    const active = data.sessions.filter(s => s.session_status === 'ACTIVE').length;
+    document.title = active > 0 ? `[${active} active] AI Orchestrator` : 'AI Orchestrator';
+  } catch (_) {}
+}, 8000);
+
+function switchTab(tab, btn) {
+  document.querySelectorAll('.sess-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-active').style.display = tab === 'active' ? '' : 'none';
+  document.getElementById('tab-closed').style.display = tab === 'closed' ? '' : 'none';
+  document.getElementById('active-filters').style.display = tab === 'active' ? '' : 'none';
+  document.getElementById('closed-filters').style.display = tab === 'closed' ? '' : 'none';
+}
+
+function filterClosedTable() {
+  const q = document.getElementById('closedFilter').value.toLowerCase();
+  document.querySelectorAll('.tr-closed').forEach(row => {
+    row.style.display = (!q || row.dataset.search.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
+function filterTable() {
+  const q = document.getElementById('sessionFilter').value.toLowerCase();
+  const st = document.getElementById('statusFilter').value;
+  document.querySelectorAll('.tr-session').forEach(row => {
+    const search = row.dataset.search.toLowerCase();
+    const status = row.dataset.status;
+    const show = (!q || search.includes(q)) && (!st || status === st);
+    row.style.display = show ? '' : 'none';
+  });
+}
+
+function closePipelineSession(sessionId) { closeSessionWithConfirm(sessionId); }
+function closeSession(sessionId) { closeSessionWithConfirm(sessionId); }
+
+/* ── Right panel state ── */
+function showRpPlaceholder() {
+  document.getElementById('rpPlaceholder').style.display = '';
+  document.getElementById('rpDetail').style.display = 'none';
+  document.getElementById('rpNewSession').style.display = 'none';
+  document.querySelectorAll('.session-card').forEach(c => c.classList.remove('card-selected'));
+}
+function showRpDetail() {
+  document.getElementById('rpPlaceholder').style.display = 'none';
+  document.getElementById('rpDetail').style.display = '';
+  document.getElementById('rpNewSession').style.display = 'none';
+}
+function showRpNewSession() {
+  document.getElementById('rpPlaceholder').style.display = 'none';
+  document.getElementById('rpDetail').style.display = 'none';
+  document.getElementById('rpNewSession').style.display = '';
+  document.querySelectorAll('.session-card').forEach(c => c.classList.remove('card-selected'));
+}
+
+/* Override global "New Session" button to use right panel instead of modal */
+function openNewSessionModal() { showRpNewSession(); }
+
+/* ── Session type form logic ── */
+const _syncSources = {{ sync_sources | tojson }};
+
+function nsTypeChanged() {
+  const t = document.getElementById('nsType').value;
+  document.getElementById('nsRepoGroup').style.display    = ['empty','fix-bug','fix-bugs'].includes(t) ? '' : 'none';
+  document.getElementById('nsBugGroup').style.display     = t === 'fix-bug'      ? '' : 'none';
+  document.getElementById('nsBugsGroup').style.display    = t === 'fix-bugs'     ? '' : 'none';
+  document.getElementById('nsSyncGroup').style.display    = t === 'sync-bugs'    ? '' : 'none';
+  document.getElementById('nsPrGroup').style.display      = t === 'code-review'  ? '' : 'none';
+  const labels = { 'empty':'Create Session', 'list-bugs':'Start List Bugs', 'fix-bug':'Start Fix Bug', 'fix-bugs':'Start Fix Bugs', 'sync-bugs':'Sync Bugs', 'code-review':'Start Code Review' };
+  document.getElementById('nsSubmitBtn').textContent = labels[t] || 'Create Session';
+}
+
+function nsSyncSourceChanged() {
+  const selected = Array.from(document.querySelectorAll('.ns-src-cb:checked')).map(c => c.value);
+  const seen = {};
+  _syncSources.forEach(src => { if (selected.includes(src.id)) Object.keys(src.projects).forEach(k => seen[k] = true); });
+  const keys = Object.keys(seen);
+  const sel = document.getElementById('nsSyncProject');
+  const group = document.getElementById('nsSyncProjectGroup');
+  sel.innerHTML = '<option value="">— all projects —</option>';
+  if (keys.length && selected.length) {
+    keys.forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
+    group.style.display = '';
+  } else { group.style.display = 'none'; }
+}
+
+async function submitNewSessPanel(e) {
+  e.preventDefault();
+  const msg = document.getElementById('nsMsgPanel');
+  const btn = document.getElementById('nsSubmitBtn');
+  const type = document.getElementById('nsType').value;
+  const agent = document.getElementById('nsAgent').value;
+  const repo = document.getElementById('nsRepo').value || null;
+
+  btn.disabled = true;
+  msg.style.display = 'none';
+
+  try {
+    if (type === 'sync-bugs') {
+      const sources = Array.from(document.querySelectorAll('.ns-src-cb:checked')).map(c => c.value);
+      if (!sources.length) { showMsg(msg, 'Select at least one source.', 'red'); return; }
+      const project = document.getElementById('nsSyncProject').value || null;
+      const top = Math.min(100, Math.max(1, parseInt(document.getElementById('nsSyncTop').value, 10) || 10));
+      const res = await fetch('/api/bugs/sync', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ sources, project, top, agent }) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.sessions[0]}`;
+
+    } else if (type === 'fix-bugs') {
+      const raw = document.getElementById('nsBugIds').value;
+      const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+      if (!ids.length) { showMsg(msg, 'Enter at least one Bug ID.', 'red'); return; }
+      showMsg(msg, `Creating ${ids.length} session(s)…`, 'muted');
+      const repos = repo ? [repo] : [];
+      let firstId = null;
+      for (const bugId of ids) {
+        const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ repositories: repos, agent, bug_id: bugId, session_type: 'fix-bugs', start_command: `/fix-bug ${bugId}` }) });
+        const data = await res.json();
+        if (!res.ok) { showMsg(msg, `Error for ${bugId}: ` + (data.detail || res.statusText), 'red'); return; }
+        if (!firstId) firstId = data.session_id;
+      }
+      window.location.href = `/sessions/${firstId}`;
+
+    } else if (type === 'code-review') {
+      const prUrl = document.getElementById('nsPrUrl').value.trim();
+      if (!prUrl) { showMsg(msg, 'Enter a PR URL.', 'red'); return; }
+      const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ repositories: [], agent, session_type: 'code-review', start_command: `/code-review ${prUrl}` }) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.session_id}`;
+
+    } else {
+      const repos = repo ? [repo] : [];
+      const payload = { repositories: repos, agent, session_type: type };
+      if (type === 'fix-bug') {
+        const bugId = document.getElementById('nsBugId').value.trim();
+        if (!bugId) { showMsg(msg, 'Enter a Bug ID.', 'red'); return; }
+        payload.bug_id = bugId;
+        payload.start_command = `/fix-bug ${bugId}`;
+      } else if (type === 'list-bugs') {
+        payload.start_command = '/list-bugs';
+      }
+      const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.session_id}`;
+    }
+  } catch(err) {
+    showMsg(msg, err.message, 'red');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showMsg(el, text, color) {
+  el.textContent = text;
+  el.style.color = color === 'red' ? 'var(--red)' : color === 'green' ? 'var(--green)' : 'var(--text-muted)';
+  el.style.display = '';
+}
+
+async function resumeSession(sessionId, agent) {
+  const r = await fetch(`/api/sessions/${sessionId}/resume`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ agent }),
+  });
+  if (r.ok) {
+    const d = await r.json();
+    window.location.href = `/sessions/${d.new_session_id}`;
+  } else {
+    alert('Failed to resume session');
+  }
+}
+
+async function newSessionForBug(sessionId, repo, agent, bugId) {
+  const payload = { repository: repo, agent, bug_id: bugId || undefined };
+  const r = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (r.ok) {
+    const d = await r.json();
+    window.location.href = `/sessions/${d.session_id}`;
+  } else {
+    alert('Failed to create session');
+  }
+}
+
+// Session card detail panel
+const sessions = {{ sessions | tojson }};
+const sessMap = {};
+sessions.forEach(s => sessMap[s.session_id] = s);
+
+function selectSession(id) {
+  document.querySelectorAll('.session-card').forEach(c => c.classList.remove('card-selected'));
+  const card = document.querySelector(`.session-card[data-session="${id}"]`);
+  if (card) card.classList.add('card-selected');
+
+  const s = sessMap[id];
+  if (!s) return;
+
+  showRpDetail();
+
+  const typeLabels = { 'fix-bug':'Fix Bug', 'fix-bugs':'Fix Multiple Bugs', 'list-bugs':'List Bugs', 'sync-bugs':'Sync Bugs', 'empty':'Empty' };
+  const normType = (s.session_type || '').toLowerCase().replace(/ /g, '-');
+  document.getElementById('rp-id').textContent = s.session_id;
+  document.getElementById('rp-type').textContent = typeLabels[normType] || (s.agent === 'claude' ? 'AI Bug Fix' : 'Manual');
+  document.getElementById('rp-bug').textContent = s.bug_id || '—';
+  document.getElementById('rp-repo').textContent = s.repository;
+  document.getElementById('rp-started').textContent = (s.created_at||'').slice(0,16).replace('T',' ');
+
+  const bugSec = document.getElementById('rp-bug-section');
+  const bd = s.bug_data;
+  if (bd) {
+    bugSec.style.display = '';
+    document.getElementById('rp-step').textContent = (bd.status||'').replace(/_/g,' ');
+    document.getElementById('rp-curstep').textContent = bd.current_step || '—';
+    document.getElementById('rp-next').textContent = bd.next_step || '—';
+
+    const jiraRow = document.getElementById('rp-jira-row');
+    const prRow = document.getElementById('rp-pr-row');
+    if (bd.jira_ticket) {
+      jiraRow.style.display = '';
+      document.getElementById('rp-jira').textContent = bd.jira_ticket;
+    } else { jiraRow.style.display = 'none'; }
+    if (bd.pr_url) {
+      prRow.style.display = '';
+      document.getElementById('rp-pr').innerHTML = `<a href="${bd.pr_url}" target="_blank" class="link-small">View PR ↗</a>`;
+    } else { prRow.style.display = 'none'; }
+
+    const curIdx = stageIndex(bd.status);
+    const isFailed = bd.status === 'FAILED';
+    const isBlocked = bd.status === 'BLOCKED';
+    document.getElementById('rp-progress').innerHTML = BUG_STAGES.map((stage, i) => {
+      let cls = '';
+      if (isFailed) cls = i <= curIdx ? 'fail' : '';
+      else if (isBlocked) cls = i < curIdx ? 'done' : i === curIdx ? 'blocked' : '';
+      else cls = i < curIdx ? 'done' : i === curIdx ? 'current' : '';
+      return `<div class="rp-step-item ${cls}">
+        <span class="rp-step-dot"></span><span class="rp-step-label">${stage.label}</span>
+      </div>`;
+    }).join('');
+  } else {
+    bugSec.style.display = 'none';
+  }
+
+  const actions = document.getElementById('rp-actions');
+  const st = s.session_status;
+  let btns = ``;
+  if (st === 'INTERRUPTED') {
+    btns += `<button class="btn btn-warning btn-block" onclick="resumeSession('${s.session_id}','${s.agent}')">Resume Session</button>`;
+    btns += `<button class="btn btn-ghost btn-block" onclick="newSessionForBug('${s.session_id}','${s.repository}','${s.agent}','${s.bug_id||''}')">New Session</button>`;
+  }
+  if (st === 'ACTIVE' || st === 'STALE') {
+    btns += `<button class="btn btn-danger btn-block" onclick="closeSession('${s.session_id}')">Close Session</button>`;
+  }
+  actions.innerHTML = btns;
+}
+
+function fixBug(bugId) {
+  const bugInput = document.getElementById('ms-bugid');
+  if (bugInput) bugInput.value = bugId;
+  openNewSessionModal();
+}
+</script>
+{% endblock %}

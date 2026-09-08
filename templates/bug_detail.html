@@ -1,0 +1,554 @@
+{% extends "base.html" %}
+{% block title %}{{ bug.title or bug.bug_id }} — AI Orchestrator{% endblock %}
+{% block breadcrumb %}<a href="/bugs">Bugs</a> <span class="bc-sep">/</span> {{ bug.bug_id }}{% endblock %}
+
+{% set sd = bug.status_data or {} %}
+{% set res = bug.result or {} %}
+{% set ps = bug.plan_summary or {} %}
+{% set ts = bug.created_at or bug.created or bug.first_seen or '' %}
+{% set wf = workflow or {} %}
+{% set steps = wf.steps or [] %}
+{% set block = wf.block %}
+
+{% block content %}
+
+<!-- ── Header ── -->
+<div class="bd-header">
+  <div class="bd-header-left">
+    <h2 class="bd-title">{{ bug.title or bug.bug_id }}</h2>
+    <div class="bd-subtitle">
+      <span class="bd-bug-id">{{ bug.bug_id }}</span>
+      {% if bug.source_url %}
+      <a href="{{ bug.source_url }}" target="_blank" class="bd-source-link">View in {{ bug.source | title }} ↗</a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="bd-header-badges">
+    <span class="source-badge source-{{ bug.source or 'unknown' }}">{{ bug.source or '—' }}</span>
+    <span class="bug-status-badge {% if sd.status == 'DONE' %}bug-status-done{% elif sd.status == 'FAILED' %}bug-status-failed{% elif sd.status == 'BLOCKED' %}bug-status-blocked{% elif sd.status %}bug-status-running{% endif %}">{{ sd.status or 'FETCHED' }}</span>
+    {% if sd.severity or bug.severity %}
+    <span class="priority-badge priority-{{ (sd.severity or bug.severity or 'medium') | lower }}">{{ sd.severity or bug.severity }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Metrics strip ── -->
+<div class="bd-metrics">
+  {% if ts %}<div class="bd-metric"><span class="bd-metric-label">First Seen</span><span class="bd-metric-val">{{ ts[:10] }}</span></div>{% endif %}
+  {% if bug.last_seen %}<div class="bd-metric"><span class="bd-metric-label">Last Seen</span><span class="bd-metric-val">{{ bug.last_seen[:10] }}</span></div>{% endif %}
+  {% if bug.event_count %}<div class="bd-metric"><span class="bd-metric-label">Occurrences</span><span class="bd-metric-val">{{ bug.event_count }}</span></div>{% endif %}
+  {% if bug.user_count is defined %}<div class="bd-metric"><span class="bd-metric-label">Users Affected</span><span class="bd-metric-val">{{ bug.user_count }}</span></div>{% endif %}
+  {% if bug.platform %}<div class="bd-metric"><span class="bd-metric-label">Platform</span><span class="bd-metric-val">{{ bug.platform }}</span></div>{% endif %}
+  {% if bug.project %}<div class="bd-metric"><span class="bd-metric-label">Project</span><span class="bd-metric-val">{{ bug.project }}</span></div>{% endif %}
+  {% if bug.repository %}<div class="bd-metric"><span class="bd-metric-label">Repository</span><span class="bd-metric-val">{{ bug.repository }}</span></div>{% endif %}
+  {% if sd.branch %}<div class="bd-metric"><span class="bd-metric-label">Branch</span><span class="bd-metric-val bd-mono">{{ sd.branch }}</span></div>{% endif %}
+  {% if res.completed_at %}<div class="bd-metric"><span class="bd-metric-label">Completed</span><span class="bd-metric-val">{{ res.completed_at[:10] }}</span></div>{% endif %}
+</div>
+
+<!-- ── Links ── -->
+{% if sd.jira_ticket or sd.pr_url or res.pr_urls %}
+<div class="bd-links-strip">
+  {% if sd.jira_ticket %}
+  <a href="{{ (jira_base_url + '/browse/' + sd.jira_ticket) if jira_base_url else '#' }}" target="_blank" class="bug-link-pill bug-link-jira">
+    <svg viewBox="0 0 16 16" width="11" height="11" style="margin-right:3px"><rect x="1" y="1" width="14" height="14" rx="2"/><path d="M5 8l3 3 3-3M8 5v6" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+    {{ sd.jira_ticket }} ↗
+  </a>
+  {% endif %}
+  {% if res.pr_urls %}{% for repo, url in res.pr_urls.items() %}
+  <a href="{{ url }}" target="_blank" class="bug-link-pill bug-link-pr">
+    <svg viewBox="0 0 16 16" width="11" height="11" style="margin-right:3px"><circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="4" r="2"/><path d="M4 6v4M6 4h4M10 6l-2 3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+    PR: {{ repo }} ↗
+  </a>
+  {% endfor %}{% elif sd.pr_url %}
+  <a href="{{ sd.pr_url }}" target="_blank" class="bug-link-pill bug-link-pr">PR ↗</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ── Sections ── -->
+<div class="bd-sections">
+
+  <!-- ── Blocked / Failed alert ── -->
+  {% if block %}
+  {% set is_blocked = block.status == 'BLOCKED' %}
+  <div class="bd-alert {% if is_blocked %}bd-alert-blocked{% else %}bd-alert-failed{% endif %}">
+    <div class="bd-alert-icon-wrap">
+      <span class="bd-alert-icon">{% if is_blocked %}⚠{% else %}✕{% endif %}</span>
+    </div>
+    <div class="bd-alert-body">
+      <div class="bd-alert-header">
+        <span class="bd-alert-status">{% if is_blocked %}Blocked{% else %}Failed{% endif %}</span>
+        {% if block.step %}<span class="bd-alert-step">at {{ block.step }}</span>{% endif %}
+        {% if block.ts %}<span class="bd-alert-ts">{{ block.ts }}</span>{% endif %}
+      </div>
+      {% if block.summary %}
+      <div class="bd-alert-summary">{{ block.summary }}</div>
+      {% endif %}
+      {% if block.error %}
+      <div class="bd-alert-section">
+        <div class="bd-alert-label">Error</div>
+        <pre class="bd-alert-error">{{ block.error }}</pre>
+      </div>
+      {% endif %}
+      {% if block.action %}
+      <div class="bd-alert-section">
+        <div class="bd-alert-label">Action needed</div>
+        <div class="bd-alert-action">{{ block.action }}</div>
+      </div>
+      {% endif %}
+      {% if is_blocked %}
+      <div class="bd-alert-hint">Fix the issue above, then re-run <code>/fix-bug {{ bug.bug_id }}</code> to resume from where it stopped.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Bug Description ── -->
+  {% if bug.description or bug.stack_trace %}
+  <div class="bd-section">
+    <div class="bd-section-title">Bug Description</div>
+    {% if bug.description %}
+    <div class="bd-prose">{{ bug.description }}</div>
+    {% endif %}
+    {% if bug.stack_trace %}
+    <details class="bd-inner-details" {% if not bug.description %}open{% endif %} style="margin-top:{% if bug.description %}12{% else %}0{% endif %}px">
+      <summary class="bd-inner-summary">Stack Trace</summary>
+      <pre class="bd-stacktrace">{{ bug.stack_trace }}</pre>
+    </details>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- ── Workflow Steps (0–12) ── -->
+  {% set is_terminal = sd.status in ['DONE', 'FAILED', 'BLOCKED'] %}
+  {% set visible_steps = steps if is_terminal else (steps | rejectattr('state', 'equalto', 'pending') | list) %}
+  {% if visible_steps %}
+  <div class="bd-section">
+    <div class="bd-section-title">Fix Workflow — Steps 0–12</div>
+    <div class="bd-wf-list">
+      {% for step in visible_steps %}
+      {% set d = step.data %}
+      <div class="bd-wf-step bd-wf-{{ step.state }}">
+        {% if not loop.last %}<div class="bd-wf-connector"></div>{% endif %}
+
+        <!-- Step number / state indicator -->
+        <div class="bd-wf-num">{% if step.state == 'done' %}✓{% else %}{{ step.num }}{% endif %}</div>
+
+        <div class="bd-wf-body">
+          <div class="bd-wf-head">
+            <span class="bd-wf-name">{{ step.name }}</span>
+            {% if step.state == 'active' %}<span class="bd-wf-badge bd-wf-active-badge">Running</span>{% endif %}
+            <span class="bd-wf-statuses">
+              {% for s in step.statuses %}
+              <span class="bd-wf-status-tag {% if sd.status == s %}bd-wf-status-current{% endif %}">{{ s }}</span>
+              {% endfor %}
+            </span>
+            {% if step.ts %}<span class="bd-wf-ts">{{ step.ts }}</span>{% endif %}
+          </div>
+
+          {% if step.state in ['done', 'active'] %}
+          <div class="bd-wf-content">
+
+            {# ── Step 0: Read Bug ── #}
+            {% if step.num == 0 %}
+            {% if d.summary %}<div class="bd-wf-summary">{{ d.summary }}</div>{% endif %}
+
+            {# ── Step 1: Analysis ── #}
+            {% elif step.num == 1 %}
+            {% if d.repos %}<div class="bd-wf-summary">Repos: {{ d.repos | join(', ') }}</div>{% endif %}
+            {% if d.has_backend or d.has_frontend %}
+            <table class="bd-wf-table">
+              <thead><tr><th>Analysis</th><th>Status</th><th>Detail</th></tr></thead>
+              <tbody>
+                {% if d.has_backend %}
+                <tr>
+                  <td>Backend</td>
+                  <td><span class="bd-wf-pill {% if d.backend_state == 'done' %}bd-wf-pill-done{% elif d.backend_state == 'active' %}bd-wf-pill-run{% else %}bd-wf-pill-pend{% endif %}">{{ d.backend_state | title }}</span></td>
+                  <td class="bd-wf-td-muted">{{ d.backend_summary }}</td>
+                </tr>
+                {% endif %}
+                {% if d.has_frontend %}
+                <tr>
+                  <td>Frontend</td>
+                  <td><span class="bd-wf-pill {% if d.frontend_state == 'done' %}bd-wf-pill-done{% elif d.frontend_state == 'active' %}bd-wf-pill-run{% else %}bd-wf-pill-pend{% endif %}">{{ d.frontend_state | title }}</span></td>
+                  <td class="bd-wf-td-muted">{{ d.frontend_summary }}</td>
+                </tr>
+                {% endif %}
+              </tbody>
+            </table>
+            {% endif %}
+            {% if bug.analysis_backend %}
+            <details class="bd-wf-details">
+              <summary class="bd-wf-details-toggle">View backend analysis</summary>
+              <div class="bd-md-body" style="border:none;padding:8px 0 0" data-md="{{ bug.analysis_backend | e }}"></div>
+            </details>
+            {% endif %}
+            {% if bug.analysis_frontend %}
+            <details class="bd-wf-details">
+              <summary class="bd-wf-details-toggle">View frontend analysis</summary>
+              <div class="bd-md-body" style="border:none;padding:8px 0 0" data-md="{{ bug.analysis_frontend | e }}"></div>
+            </details>
+            {% endif %}
+
+            {# ── Step 2: Sync ── #}
+            {% elif step.num == 2 %}
+            {% if d.repos %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Repos synced</span><span class="bd-wf-kv-val">{{ d.repos | join(', ') }}</span></div>{% endif %}
+            {% if d.summary %}<div class="bd-wf-summary">{{ d.summary }}</div>{% endif %}
+
+            {# ── Step 3: Jira Ticket ── #}
+            {% elif step.num == 3 %}
+            <div class="bd-wf-kv">
+              <span class="bd-wf-kv-label">Ticket</span>
+              {% if d.jira_key %}
+                {% if jira_base_url %}
+                <a href="{{ jira_base_url }}/browse/{{ d.jira_key }}" target="_blank" class="bd-wf-link">{{ d.jira_key }} ↗</a>
+                {% else %}
+                <span class="bd-wf-kv-val bd-mono">{{ d.jira_key }}</span>
+                {% endif %}
+              {% else %}
+              <span class="bd-wf-kv-val bd-wf-muted">Not yet created</span>
+              {% endif %}
+            </div>
+            {% if d.action %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Action</span><span class="bd-wf-kv-val">{{ d.action }}</span></div>{% endif %}
+
+            {# ── Step 4: Diagnosis ── #}
+            {% elif step.num == 4 %}
+            {% if d.root_cause %}
+            <div class="bd-wf-highlight-card">
+              <div class="bd-wf-highlight-label">Root Cause</div>
+              <div class="bd-wf-highlight-val">{{ d.root_cause }}</div>
+            </div>
+            {% elif d.summary %}
+            <div class="bd-wf-summary">{{ d.summary }}</div>
+            {% endif %}
+            {% if d.repos %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Confirmed Repos</span><span class="bd-wf-kv-val">{{ d.repos | join(', ') }}</span></div>{% endif %}
+            {% if bug.diagnosis %}
+            <details class="bd-wf-details">
+              <summary class="bd-wf-details-toggle">View full diagnosis</summary>
+              <div class="bd-md-body" style="border:none;padding:8px 0 0" data-md="{{ bug.diagnosis | e }}"></div>
+            </details>
+            {% endif %}
+
+            {# ── Step 5: Diagnostic ── #}
+            {% elif step.num == 5 %}
+            {% if d.summary %}<div class="bd-wf-summary">{{ d.summary }}</div>{% endif %}
+            {% if bug.diagnosis %}
+            <details class="bd-wf-details">
+              <summary class="bd-wf-details-toggle">View full diagnostic</summary>
+              <div class="bd-md-body" style="border:none;padding:8px 0 0" data-md="{{ bug.diagnosis | e }}"></div>
+            </details>
+            {% endif %}
+
+            {# ── Step 6: Fix Plan ── #}
+            {% elif step.num == 6 %}
+            {% if d.root_cause %}
+            <div class="bd-wf-highlight-card">
+              <div class="bd-wf-highlight-label">Root Cause</div>
+              <div class="bd-wf-highlight-val">{{ d.root_cause }}</div>
+            </div>
+            {% endif %}
+            {% if d.risk_level %}
+            <div class="bd-wf-kv">
+              <span class="bd-wf-kv-label">Risk</span>
+              <span class="bd-risk-badge risk-{{ d.risk_level | lower }}">{{ d.risk_level }}</span>
+              {% if d.risk_explanation %}<span class="bd-wf-kv-val bd-wf-muted" style="margin-left:8px">{{ d.risk_explanation }}</span>{% endif %}
+            </div>
+            {% endif %}
+            {% if d.repos_changes %}
+            <div class="bd-wf-sub-label">Files to Change</div>
+            <table class="bd-wf-table">
+              <thead><tr><th>Repo</th><th>Change</th></tr></thead>
+              <tbody>
+                {% for repo, changes in d.repos_changes.items() %}
+                {% for change in changes %}
+                <tr>
+                  {% if loop.first %}<td rowspan="{{ changes | length }}" class="bd-wf-td-repo">{{ repo }}</td>{% endif %}
+                  <td class="bd-wf-td-muted">{{ change }}</td>
+                </tr>
+                {% endfor %}
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+            {% if d.implementation_steps %}
+            <div class="bd-wf-sub-label">Implementation Steps</div>
+            <ol class="bd-wf-steps-list">{% for s in d.implementation_steps %}<li>{{ s }}</li>{% endfor %}</ol>
+            {% endif %}
+            {% if d.tests %}
+            <div class="bd-wf-sub-label">Tests</div>
+            <ul class="bd-wf-steps-list">{% for t in d.tests %}<li>{{ t }}</li>{% endfor %}</ul>
+            {% endif %}
+            {% if d.jira_posted %}
+            <div class="bd-wf-kv"><span class="bd-wf-kv-label">Jira</span><span class="bd-wf-kv-val">Plan comment posted to {{ d.jira_key }}</span></div>
+            {% endif %}
+            {% if bug.plan %}
+            <details class="bd-wf-details">
+              <summary class="bd-wf-details-toggle">View full plan</summary>
+              <div class="bd-md-body" style="border:none;padding:8px 0 0" data-md="{{ bug.plan | e }}"></div>
+            </details>
+            {% endif %}
+
+            {# ── Step 7: Branch & Worktree ── #}
+            {% elif step.num == 7 %}
+            {% if d.branch %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Branch</span><span class="bd-wf-kv-val bd-mono">{{ d.branch }}</span></div>{% endif %}
+            {% if d.repos %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Repos</span><span class="bd-wf-kv-val">{{ d.repos | join(', ') }}</span></div>{% endif %}
+            {% if d.path %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Worktree</span><span class="bd-wf-kv-val bd-mono">{{ d.path }}</span></div>{% endif %}
+
+            {# ── Step 8: Implementation ── #}
+            {% elif step.num == 8 %}
+            {% if d.commits %}
+            <div class="bd-wf-sub-label">Commits</div>
+            <table class="bd-wf-table">
+              <thead><tr><th>Repo</th><th>Commit Hash</th></tr></thead>
+              <tbody>
+                {% for repo, hash in d.commits.items() %}
+                <tr>
+                  <td>{{ repo }}</td>
+                  <td><span class="bd-mono bd-wf-hash">{{ hash[:8] if hash | length > 8 else hash }}</span></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+            {% if d.files_changed %}
+            <div class="bd-wf-sub-label">Files Changed</div>
+            <div class="bd-file-list" style="margin-top:4px">{% for f in d.files_changed %}<span class="bd-file-pill">{{ f }}</span>{% endfor %}</div>
+            {% endif %}
+            {% if d.summary and not d.commits %}<div class="bd-wf-summary">{{ d.summary }}</div>{% endif %}
+
+            {# ── Step 9: Tests ── #}
+            {% elif step.num == 9 %}
+            {% if d.result %}
+            <div class="bd-wf-kv">
+              <span class="bd-wf-kv-label">Result</span>
+              <span class="bd-wf-pill {% if d.result == 'Passed' %}bd-wf-pill-done{% elif d.result == 'Failed' %}bd-wf-pill-fail{% else %}bd-wf-pill-pend{% endif %}">{{ d.result }}</span>
+            </div>
+            {% endif %}
+            {% if d.repos %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Repos</span><span class="bd-wf-kv-val">{{ d.repos | join(', ') }}</span></div>{% endif %}
+            {% if d.skipped_reason %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Reason</span><span class="bd-wf-kv-val bd-wf-muted">{{ d.skipped_reason }}</span></div>{% endif %}
+            {% if d.summary %}<div class="bd-wf-summary">{{ d.summary }}</div>{% endif %}
+            {% if d.fail_summary %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Failure</span><span class="bd-wf-kv-val bd-wf-err">{{ d.fail_summary }}</span></div>{% endif %}
+
+            {# ── Step 10: Pull Request ── #}
+            {% elif step.num == 10 %}
+            {% if d.pr_urls %}
+            <table class="bd-wf-table">
+              <thead><tr><th>Repo</th><th>Pull Request</th></tr></thead>
+              <tbody>
+                {% for repo, url in d.pr_urls.items() %}
+                <tr>
+                  <td>{{ repo }}</td>
+                  <td><a href="{{ url }}" target="_blank" class="bd-wf-link">View PR ↗</a></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% endif %}
+            {% if d.branch %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Branch</span><span class="bd-wf-kv-val bd-mono">{{ d.branch }}</span></div>{% endif %}
+
+            {# ── Step 11: Update Jira ── #}
+            {% elif step.num == 11 %}
+            <div class="bd-wf-kv">
+              <span class="bd-wf-kv-label">Ticket</span>
+              {% if d.jira_key and jira_base_url %}
+              <a href="{{ jira_base_url }}/browse/{{ d.jira_key }}" target="_blank" class="bd-wf-link">{{ d.jira_key }} ↗</a>
+              {% elif d.jira_key %}
+              <span class="bd-wf-kv-val bd-mono">{{ d.jira_key }}</span>
+              {% endif %}
+            </div>
+            {% if d.updated %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Comment</span><span class="bd-wf-kv-val">Fix details posted</span></div>{% endif %}
+            {% if d.transitioned %}<div class="bd-wf-kv"><span class="bd-wf-kv-label">Status</span><span class="bd-wf-kv-val">Transitioned to In Review</span></div>{% endif %}
+
+            {# ── Step 12: Mark Done ── #}
+            {% elif step.num == 12 %}
+            <table class="bd-wf-table">
+              {% if d.jira_key %}<tr><td class="bd-wf-td-label">Jira</td><td>{% if jira_base_url %}<a href="{{ jira_base_url }}/browse/{{ d.jira_key }}" target="_blank" class="bd-wf-link">{{ d.jira_key }} ↗</a>{% else %}<span class="bd-mono">{{ d.jira_key }}</span>{% endif %}</td></tr>{% endif %}
+              {% if d.branch %}<tr><td class="bd-wf-td-label">Branch</td><td class="bd-mono">{{ d.branch }}</td></tr>{% endif %}
+              {% if d.repos %}<tr><td class="bd-wf-td-label">Repos</td><td>{{ d.repos | join(', ') }}</td></tr>{% endif %}
+              {% if d.pr_urls %}{% for repo, url in d.pr_urls.items() %}<tr><td class="bd-wf-td-label">PR ({{ repo }})</td><td><a href="{{ url }}" target="_blank" class="bd-wf-link">View PR ↗</a></td></tr>{% endfor %}{% endif %}
+              {% if d.commits %}{% for repo, hash in d.commits.items() %}<tr><td class="bd-wf-td-label">Commit ({{ repo }})</td><td class="bd-mono bd-wf-hash">{{ hash[:8] if hash | length > 8 else hash }}</td></tr>{% endfor %}{% endif %}
+              {% if d.files_changed %}<tr><td class="bd-wf-td-label">Files</td><td><div class="bd-file-list">{% for f in d.files_changed %}<span class="bd-file-pill bd-file-pill-green">{{ f }}</span>{% endfor %}</div></td></tr>{% endif %}
+              {% if d.completed_at %}<tr><td class="bd-wf-td-label">Completed</td><td class="bd-wf-muted">{{ d.completed_at[:16] | replace('T',' ') }}</td></tr>{% endif %}
+            </table>
+            {% endif %}
+
+          </div>
+          {% elif step.state == 'pending' %}
+          <div class="bd-wf-pending-hint">Waiting…</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Stack Trace (only if no workflow steps to show it) ── -->
+  {% if bug.stack_trace and not visible_steps %}
+  <div class="bd-section">
+    <div class="bd-section-title">Stack Trace</div>
+    <pre class="bd-stacktrace">{{ bug.stack_trace }}</pre>
+  </div>
+  {% endif %}
+
+</div><!-- /bd-sections -->
+{% endblock %}
+
+{% block right_panel %}
+{% set running_sess = bug_sessions | selectattr("session_status", "in", ["ACTIVE","STALE"]) | list %}
+
+<!-- Actions -->
+<div style="padding:14px 12px 10px;border-bottom:1px solid var(--border)">
+  <div class="rp-section-title" style="margin-bottom:8px">Actions</div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    {% if running_sess %}{% set sess = running_sess[0] %}
+      <button class="btn btn-ghost btn-danger" onclick="closeSession('{{ sess.session_id }}')">Close Session</button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Current step progress (if running) -->
+{% if sd.status and sd.status not in ['DONE','FAILED','BLOCKED','FETCHED'] %}
+<div class="bd-step-progress">
+  <div class="bd-step-progress-label">{{ sd.current_step | replace('_',' ') | title if sd.current_step else sd.status }}</div>
+  {% if sd.next_step %}
+  <div class="bd-step-progress-next">Next: {{ sd.next_step | replace('_',' ') }}</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Blocked / Failed error card -->
+{% if sd.status in ['BLOCKED','FAILED'] and sd.error %}
+<div class="bd-error-card {% if sd.status == 'BLOCKED' %}bd-error-blocked{% endif %}">
+  <div class="bd-error-title">
+    {% if sd.status == 'BLOCKED' %}⚠ Blocked{% else %}✕ Failed{% endif %}
+    {% if sd.current_step %} — {{ sd.current_step | replace('_',' ') | title }}{% endif %}
+  </div>
+  <div class="bd-error-msg">{{ sd.error }}</div>
+  {% if sd.status == 'BLOCKED' %}
+  <div class="bd-error-hint">Fix the issue above and re-run <span class="bd-mono">fix-bug {{ sd.bug_id }}</span> to resume.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Timeline -->
+<div style="padding:10px 12px 6px;border-bottom:1px solid var(--border)">
+  <div class="rp-section-title">Timeline <span class="count-badge">{{ events | length }}</span></div>
+</div>
+<div style="overflow-y:auto;flex:1;padding:4px 0">
+  {% if events %}
+  <div class="bd-events" style="padding:0 12px">
+    {% for ev in events | reverse %}
+    {% set evname = ev.event or '' %}
+    {% set is_fail = 'FAIL' in evname or 'ERROR' in evname %}
+    {% set is_blocked = evname == 'BUG_BLOCKED' %}
+    {% set is_done = evname in ['BUG_COMPLETED','PLAN_CREATED','PR_CREATED','JIRA_TICKET_CREATED','JIRA_TICKET_LINKED','JIRA_UPDATED','TESTS_PASSED','BRANCH_CREATED','WORKTREE_CREATED','IMPLEMENTATION_COMPLETE','BRANCH_SYNCED','JIRA_PLAN_POSTED','JIRA_TRANSITIONED','DIAGNOSIS_COMPLETE','DIAGNOSTIC_PRINTED','BUG_FETCHED','BACKEND_ANALYSIS_COMPLETE','FRONTEND_ANALYSIS_COMPLETE'] %}
+    {% set is_running = 'STARTED' in evname or 'DISPATCHED' in evname or 'CREATING' in evname %}
+
+    <div class="bd-event {% if is_fail or is_blocked %}bd-event-error{% endif %}">
+      <div class="bd-event-dot-wrap">
+        <span class="bd-event-dot
+          {% if is_fail or is_blocked %}bd-event-dot-red
+          {% elif is_done %}bd-event-dot-green
+          {% elif is_running %}bd-event-dot-blue
+          {% endif %}">
+        </span>
+        <span class="bd-event-line"></span>
+      </div>
+      <div class="bd-event-body">
+        <div class="bd-event-name">{{ evname | replace('_',' ') | title }}</div>
+
+        <!-- Summary from event JSON -->
+        {% if ev.get('summary') %}
+        <div class="bd-event-outcome">{{ ev.summary }}</div>
+        {% endif %}
+
+        <!-- Error detail for BLOCKED/FAILED -->
+        {% if ev.get('error') %}
+        <div class="bd-event-error-detail">{{ ev.error }}</div>
+        {% endif %}
+        {% if ev.get('action') %}
+        <div class="bd-event-action">Action: {{ ev.action }}</div>
+        {% endif %}
+
+        <!-- Metadata tags -->
+        <div class="bd-event-tags">
+          {% if ev.get('jira_key') %}<span class="bd-event-tag bd-tag-jira">{{ ev.jira_key }}</span>{% endif %}
+          {% if ev.get('branch') %}<span class="bd-event-tag bd-tag-branch bd-mono">{{ ev.branch }}</span>{% endif %}
+          {% if ev.get('repos') %}{% for r in ev.repos %}<span class="bd-event-tag bd-tag-repo">{{ r }}</span>{% endfor %}{% endif %}
+          {% if ev.get('pr_urls') %}{% for repo, url in ev.pr_urls.items() %}
+          <a href="{{ url }}" target="_blank" class="bd-event-tag bd-tag-pr">{{ repo }} PR ↗</a>
+          {% endfor %}{% endif %}
+          {% if ev.get('note') %}<span class="bd-event-tag">{{ ev.note }}</span>{% endif %}
+        </div>
+
+        <div class="bd-event-time">{{ (ev.timestamp or '')[:19] | replace('T',' ') }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="padding:16px 12px;color:var(--text-muted);font-size:13px">No events yet.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const _agents = {{ agents | tojson }};
+const _repos  = {{ repositories | tojson }};
+
+document.querySelectorAll('.bd-md-body[data-md]').forEach(el => {
+  el.innerHTML = marked.parse(el.dataset.md || '');
+});
+
+async function fixBug(bugId, repoId) {
+  const agent = (_agents.find(a => a.id === 'claude') || _agents[0] || {id:'claude'}).id;
+  const matchedRepo = _repos.find(r => r.id === repoId);
+  const repositories = matchedRepo ? [matchedRepo.id] : [];
+  const res = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ repositories, agent, bug_id: bugId, start_command: `/fix-bug ${bugId}` }),
+  });
+  const data = await res.json();
+  if (!res.ok) { alert('Error: ' + (data.detail || res.statusText)); return; }
+  window.location.href = `/sessions/${data.session_id}`;
+}
+
+function closeSession(sessionId) { closeSessionWithConfirm(sessionId); }
+
+// ── Auto-refresh when bug is actively running ──────────────────────────────
+(function () {
+  const ACTIVE = new Set([
+    'QUEUED','SYNCING','DIAGNOSING','PLANNING','BRANCHING','BRANCHED',
+    'WORKTREE_READY','IMPLEMENTING','TESTING','PR_CREATING','JIRA_UPDATING'
+  ]);
+  const bugId     = {{ bug.bug_id | tojson }};
+  const curStatus = {{ (sd.status or 'FETCHED') | tojson }};
+
+  if (!ACTIVE.has(curStatus)) return;
+
+  // Show a small live indicator in the page title
+  const origTitle = document.title;
+  document.title = '⟳ ' + origTitle;
+
+  let lastStatus = curStatus;
+  let lastUpdated = '';
+
+  const timer = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/bugs/${bugId}/status`);
+      if (!r.ok) return;
+      const { status, updated_at } = await r.json();
+      if (status !== lastStatus || (updated_at && updated_at !== lastUpdated)) {
+        clearInterval(timer);
+        location.reload();
+      }
+      lastUpdated = updated_at || lastUpdated;
+    } catch (_) {}
+  }, 5000);
+})();
+</script>
+{% endblock %}

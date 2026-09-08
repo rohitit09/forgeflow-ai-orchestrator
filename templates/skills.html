@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Skills — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Skills{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Skills</h2>
+  <span class="page-subtitle">{{ skills | length }} available</span>
+</div>
+
+{% if not skills %}
+<div class="empty-state">
+  <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><polygon points="32,4 39,22 58,24 44,38 48,57 32,47 16,57 20,38 6,24 25,22"/></svg>
+  <p>No skills found in <code>skills/*/SKILL.md</code></p>
+</div>
+{% else %}
+<div class="skills-layout">
+
+  <!-- Left: skill list -->
+  <div class="skills-list-col">
+    {% for skill in skills %}
+    <div class="skill-row" id="skill-row-{{ skill.id }}" onclick="selectSkill('{{ skill.id }}')">
+      <div class="skill-row-icon">
+        <svg viewBox="0 0 20 20" width="14" height="14"><polygon points="10,2 12.5,7.5 18,8.2 14,12 15.2,17.5 10,14.5 4.8,17.5 6,12 2,8.2 7.5,7.5"/></svg>
+      </div>
+      <div class="skill-row-body">
+        <div class="skill-row-name">{{ skill.name }}</div>
+        <div class="skill-row-cmd"><code>/{{ skill.id }}</code></div>
+        {% if skill.description %}
+        <div class="skill-row-desc">{{ skill.description }}</div>
+        {% endif %}
+      </div>
+      <svg class="skill-row-arrow" viewBox="0 0 20 20" width="14" height="14"><path d="M7 5l5 5-5 5"/></svg>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Right: content viewer -->
+  <div class="skills-viewer-col" id="skillsViewer">
+    <div class="skills-viewer-empty">
+      <svg viewBox="0 0 64 64" width="36" height="36" opacity=".25"><polygon points="32,4 39,22 58,24 44,38 48,57 32,47 16,57 20,38 6,24 25,22"/></svg>
+      <p>Select a skill to view its documentation</p>
+    </div>
+  </div>
+
+</div>
+{% endif %}
+{% endblock %}
+
+{% block right_panel %}
+<div class="rp-empty">
+  <svg viewBox="0 0 64 64" width="40" height="40" opacity=".3"><polygon points="32,4 39,22 58,24 44,38 48,57 32,47 16,57 20,38 6,24 25,22"/></svg>
+  <p>Skills are Claude Code slash commands in<br><code>.claude/commands/</code></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SKILLS = {{ skills | tojson }};
+const SKILLS_BY_ID = Object.fromEntries(SKILLS.map(s => [s.id, s]));
+let activeSkillId = null;
+
+function selectSkill(id) {
+  const skill = SKILLS_BY_ID[id];
+  if (!skill) return;
+
+  // update active row
+  if (activeSkillId) {
+    document.getElementById('skill-row-' + activeSkillId)?.classList.remove('active');
+  }
+  activeSkillId = id;
+  document.getElementById('skill-row-' + id)?.classList.add('active');
+
+  // render content
+  const viewer = document.getElementById('skillsViewer');
+  viewer.innerHTML = `
+    <div class="skill-viewer-header">
+      <div>
+        <div class="skill-viewer-name">${escHtml(skill.name)}</div>
+        <div class="skill-viewer-cmd"><code>/${escHtml(skill.id)}</code></div>
+      </div>
+    </div>
+    <div class="skill-viewer-body">
+      <pre class="skill-viewer-content">${escHtml(skill.content)}</pre>
+    </div>
+  `;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Auto-select first skill
+if (SKILLS.length) selectSkill(SKILLS[0].id);
+</script>
+{% endblock %}

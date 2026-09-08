@@ -1,0 +1,519 @@
+{% extends "base.html" %}
+{% block title %}Bugs — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Bugs{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-primary" onclick="openNewSessionModal()" style="display:flex;align-items:center;gap:6px">
+  <svg viewBox="0 0 20 20" width="14" height="14"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  New Session
+</button>
+{% endblock %}
+
+{# Resolve the date from whichever field the source wrote #}
+{% macro bug_date(bug) %}
+  {% set ts = bug.created_at or bug.created or bug.first_seen or '' %}
+  {{ ts[:10] if ts else '—' }}
+{% endmacro %}
+
+{% macro bug_links(sd, bug) %}
+<div class="bug-links">
+  {% if sd.jira_ticket %}
+  <a href="{{ (jira_base_url + '/browse/' + sd.jira_ticket) if jira_base_url else '#' }}" target="_blank" class="bug-link-pill bug-link-jira" title="Jira ticket">
+    <svg viewBox="0 0 16 16" width="11" height="11" style="margin-right:3px;flex-shrink:0"><rect x="1" y="1" width="14" height="14" rx="2"/><path d="M5 8l3 3 3-3M8 5v6" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+    {{ sd.jira_ticket }}
+  </a>
+  {% endif %}
+  {% if sd.pr_url %}
+  <a href="{{ sd.pr_url }}" target="_blank" class="bug-link-pill bug-link-pr" title="Pull request">
+    <svg viewBox="0 0 16 16" width="11" height="11" style="margin-right:3px;flex-shrink:0"><circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="4" r="2"/><path d="M4 6v4M6 4h4M10 6l-2 3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+    PR ↗
+  </a>
+  {% endif %}
+  {% if not sd.jira_ticket and not sd.pr_url %}
+  <span style="color:var(--text-muted);font-size:12px">—</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Bugs</h2>
+  <div class="page-header-stats">
+    <span class="stat-chip stat-chip-green">{{ running_bugs | length }} Running</span>
+    <span class="stat-chip stat-chip-blue">{{ open_bugs | length }} Open</span>
+    <span class="stat-chip stat-chip-gray">{{ done_bugs | length }} Done</span>
+    {% if failed_bugs %}<span class="stat-chip stat-chip-red">{{ failed_bugs | length }} Failed</span>{% endif %}
+  </div>
+</div>
+
+<!-- ── Tabs ── -->
+<div class="sess-tabs" style="margin-top:16px">
+  <button class="sess-tab active" onclick="bugSwitchTab('running', this)">
+    Running <span class="count-badge">{{ running_bugs | length }}</span>
+  </button>
+  <button class="sess-tab" onclick="bugSwitchTab('open', this)">
+    Open <span class="count-badge">{{ open_bugs | length }}{% if failed_bugs %} + {{ failed_bugs | length }}{% endif %}</span>
+  </button>
+  <button class="sess-tab" onclick="bugSwitchTab('done', this)">
+    Done <span class="count-badge">{{ done_bugs | length }}</span>
+  </button>
+
+  <!-- filters shown per-tab -->
+  <div class="sess-tab-filters" id="bug-filters-running" style="display:none">
+    <input type="text" class="filter-input" placeholder="Search…" oninput="bugFilter('running', this.value, '')">
+  </div>
+  <div class="sess-tab-filters" id="bug-filters-open" style="display:none">
+    <input type="text" class="filter-input" placeholder="Search…" oninput="bugFilter('open', this.value, document.getElementById('open-date').value)">
+    <input type="date" class="filter-select" id="open-date" style="width:130px" oninput="bugFilter('open', document.querySelector('#bug-filters-open .filter-input').value, this.value)">
+  </div>
+  <div class="sess-tab-filters" id="bug-filters-done" style="display:none">
+    <input type="text" class="filter-input" placeholder="Search…" oninput="bugFilter('done', this.value, document.getElementById('done-date').value)">
+    <input type="date" class="filter-select" id="done-date" style="width:130px" oninput="bugFilter('done', document.querySelector('#bug-filters-done .filter-input').value, this.value)">
+  </div>
+</div>
+
+<!-- ── Running Tab ── -->
+<div id="bug-tab-running" class="tab-panel">
+  <div class="table-wrap">
+    <table class="bugs-table" id="tbl-running">
+      <thead>
+        <tr>
+          <th>Bug</th>
+          <th>Status</th>
+          <th>Priority</th>
+          <th>Jira / PR</th>
+          <th>Agent</th>
+          <th>Session</th>
+          <th>Started</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bug in running_bugs %}
+        {% set sd = bug.status_data or {} %}
+        {% set sess = bug.active_session %}
+        {% set ts = bug.created_at or bug.created or bug.first_seen or '' %}
+        <tr data-search="{{ bug.bug_id }} {{ bug.title }} {{ bug.source }}" data-date="{{ ts[:10] }}">
+          <td>
+            <div class="bug-title">{{ bug.title or bug.bug_id }}</div>
+            <div class="bug-id">{{ bug.bug_id }}</div>
+          </td>
+          <td><span class="bug-status-badge bug-status-running">{{ sd.status or '—' }}</span></td>
+          <td><span class="priority-badge priority-{{ (sd.severity or 'medium') | lower }}">{{ sd.severity or '—' }}</span></td>
+          <td>{{ bug_links(sd, bug) }}</td>
+          <td>{{ sess.agent if sess else '—' }}</td>
+          <td>{% if sess %}<a href="/sessions/{{ sess.session_id }}" class="sess-link">{{ sess.session_id }}</a>{% else %}—{% endif %}</td>
+          <td class="ts">{{ ts[:10] or '—' }}</td>
+          <td class="bug-actions">
+            {% if sess %}
+            <a href="/bugs/{{ bug.bug_id }}" class="btn btn-sm btn-ghost">Details</a>
+            <a href="/sessions/{{ sess.session_id }}" class="btn btn-sm btn-ghost">Session</a>
+            <button class="btn btn-sm btn-danger" onclick="closeBugSession('{{ sess.session_id }}')">Close</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="td-empty">No bugs currently running.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Open Tab ── -->
+<div id="bug-tab-open" class="tab-panel" style="display:none">
+  <div class="table-wrap">
+    <table class="bugs-table" id="tbl-open">
+      <thead>
+        <tr>
+          <th>Bug</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th>Priority</th>
+          <th>Jira / PR</th>
+          <th>Repository</th>
+          <th>Created ↕</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bug in open_bugs + failed_bugs %}
+        {% set sd = bug.status_data or {} %}
+        {% set ts = bug.created_at or bug.created or bug.first_seen or '' %}
+        {% set is_failed = (sd.status or '') == 'FAILED' %}
+        <tr class="{{ 'row-failed' if is_failed else '' }}" data-search="{{ bug.bug_id }} {{ bug.title }} {{ bug.source }} {{ bug.repository }}" data-date="{{ ts[:10] }}">
+          <td>
+            <div class="bug-title">{{ bug.title or bug.bug_id }}</div>
+            <div class="bug-id">{{ bug.bug_id }}</div>
+          </td>
+          <td><span class="source-badge source-{{ bug.source or 'unknown' }}">{{ bug.source or '—' }}</span></td>
+          <td><span class="bug-status-badge {{ 'bug-status-failed' if is_failed else '' }}">{{ sd.status or 'FETCHED' }}</span></td>
+          <td><span class="priority-badge priority-{{ (sd.severity or 'medium') | lower }}">{{ sd.severity or '—' }}</span></td>
+          <td>{{ bug_links(sd, bug) }}</td>
+          <td>{{ bug.repository or '—' }}</td>
+          <td class="ts">{{ ts[:10] or '—' }}</td>
+          <td class="bug-actions">
+            {% if is_failed %}
+            <a href="/bugs/{{ bug.bug_id }}" class="btn btn-sm btn-ghost">Details</a>
+            <button class="btn btn-sm btn-primary" onclick="fixBug('{{ bug.bug_id }}', '{{ bug.repository or '' }}')">Retry</button>
+            {% else %}
+            <button class="btn btn-sm btn-primary" onclick="fixBug('{{ bug.bug_id }}', '{{ bug.repository or '' }}')">Fix Bug</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="td-empty">No open bugs. Run a sync to fetch bugs.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Done Tab ── -->
+<div id="bug-tab-done" class="tab-panel" style="display:none">
+  <div class="table-wrap">
+    <table class="bugs-table" id="tbl-done">
+      <thead>
+        <tr>
+          <th>Bug</th>
+          <th>Source</th>
+          <th>Priority</th>
+          <th>Jira / PR</th>
+          <th>Repository</th>
+          <th>Created ↕</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bug in done_bugs %}
+        {% set sd = bug.status_data or {} %}
+        {% set ts = bug.created_at or bug.created or bug.first_seen or '' %}
+        <tr data-search="{{ bug.bug_id }} {{ bug.title }} {{ bug.source }} {{ bug.repository }}" data-date="{{ ts[:10] }}">
+          <td>
+            <div class="bug-title">{{ bug.title or bug.bug_id }}</div>
+            <div class="bug-id">{{ bug.bug_id }}</div>
+          </td>
+          <td><span class="source-badge source-{{ bug.source or 'unknown' }}">{{ bug.source or '—' }}</span></td>
+          <td><span class="priority-badge priority-{{ (sd.severity or 'medium') | lower }}">{{ sd.severity or '—' }}</span></td>
+          <td>{{ bug_links(sd, bug) }}</td>
+          <td>{{ bug.repository or '—' }}</td>
+          <td class="ts">{{ ts[:10] or '—' }}</td>
+          <td class="bug-actions">
+            <a href="/bugs/{{ bug.bug_id }}" class="btn btn-sm btn-ghost">Details</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="td-empty">No completed bugs yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="fixBugMsg" class="fix-bug-msg" style="display:none"></div>
+{% endblock %}
+
+{% block right_panel %}
+
+<!-- new session form panel -->
+<div id="rpNewSession" style="display:none;overflow-y:auto;height:100%">
+  <div style="padding:14px 12px 6px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div class="rp-section-title">New Session</div>
+    <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1" onclick="showRpPlaceholder()">✕</button>
+  </div>
+  <div style="padding:12px">
+    <form id="newSessForm" onsubmit="submitNewSessPanel(event)">
+      <div class="form-group">
+        <label>Session Type</label>
+        <select id="nsType" onchange="nsTypeChanged()">
+          <option value="empty">Empty Session</option>
+          <option value="list-bugs">List Bugs</option>
+          <option value="fix-bug">Fix Bug</option>
+          <option value="fix-bugs">Fix Multiple Bugs</option>
+          <option value="sync-bugs">Sync Bugs</option>
+          <option value="code-review">Code Review</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Agent</label>
+        <select id="nsAgent">
+          {% for agent in agents %}
+          <option value="{{ agent.id }}">{{ agent.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" id="nsRepoGroup">
+        <label>Repository <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <select id="nsRepo">
+          <option value="">— none —</option>
+          {% for repo in repositories %}
+          <option value="{{ repo.id }}">{{ repo.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" id="nsBugGroup" style="display:none">
+        <label>Bug ID</label>
+        <input type="text" id="nsBugId" placeholder="e.g. SENTRY-1234 or JAR-56" />
+      </div>
+      <div class="form-group" id="nsBugsGroup" style="display:none">
+        <label>Bug IDs <span style="color:var(--text-muted);font-weight:400">(comma-separated)</span></label>
+        <input type="text" id="nsBugIds" placeholder="SENTRY-1, JAR-2, SENTRY-3" />
+      </div>
+      <div class="form-group" id="nsPrGroup" style="display:none">
+        <label>PR Link</label>
+        <input type="url" id="nsPrUrl" placeholder="https://github.com/org/repo/pull/123" />
+      </div>
+      <div id="nsSyncGroup" style="display:none">
+        <div class="form-group">
+          <label>Sources</label>
+          <div class="sync-checks" id="nsSyncSources">
+            {% for src in sync_sources %}
+            <label class="sync-check-label">
+              <input type="checkbox" class="ns-src-cb" value="{{ src.id }}" onchange="nsSyncSourceChanged()">
+              {{ src.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-group" id="nsSyncProjectGroup" style="display:none">
+          <label>Project</label>
+          <select id="nsSyncProject">
+            <option value="">— all projects —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Max bugs <span style="color:var(--text-muted);font-weight:400">(1–100)</span></label>
+          <input type="number" id="nsSyncTop" value="10" min="1" max="100" />
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Syncs today &amp; yesterday only.</div>
+      </div>
+      <div id="nsMsgPanel" style="display:none;font-size:12px;margin-bottom:8px"></div>
+      <button type="submit" class="btn btn-primary" style="width:100%" id="nsSubmitBtn">Create Session</button>
+    </form>
+  </div>
+</div>
+
+<!-- last syncs (default) -->
+<div id="rpPlaceholder" style="padding:14px 12px 10px">
+  <div class="rp-section-title" style="margin-bottom:12px">Last Syncs</div>
+
+  {% if last_syncs %}
+  <div style="display:flex;flex-direction:column;gap:8px">
+    {% for s in last_syncs %}
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px 12px">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary)">
+          {{ s.source | title }}{% if s.project %} / {{ s.project }}{% else %} / all{% endif %}
+        </div>
+        <span style="font-size:10px;font-weight:700;letter-spacing:.05em;padding:2px 7px;border-radius:10px;
+          {%- if s.status == 'COMPLETED' %} background:var(--green-dim);color:var(--green)
+          {%- elif s.status == 'FAILED' %} background:var(--red-dim);color:var(--red)
+          {%- elif s.status == 'RUNNING' %} background:rgba(234,179,8,.12);color:var(--yellow)
+          {%- else %} background:var(--bg-hover);color:var(--text-muted){%- endif %}">
+          {{ s.status }}
+        </span>
+      </div>
+
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">
+        {% if s.completed_at %}Completed {{ s.completed_at[:16].replace('T', ' ') }}
+        {% elif s.started_at %}Started {{ s.started_at[:16].replace('T', ' ') }}
+        {% endif %}
+      </div>
+
+      {% if s.status == 'COMPLETED' %}
+      <div style="display:flex;gap:12px;padding-top:4px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text-muted)">
+          <span style="color:var(--text-primary);font-weight:600">{{ s.bugs_fetched or 0 }}</span> fetched
+        </div>
+        <div style="font-size:11px;color:var(--text-muted)">
+          <span style="color:var(--green);font-weight:600">+{{ s.bugs_new or 0 }}</span> new
+        </div>
+        <div style="font-size:11px;color:var(--text-muted)">
+          <span style="color:var(--text-primary);font-weight:600">{{ s.bugs_updated or 0 }}</span> updated
+        </div>
+      </div>
+      {% elif s.status == 'RUNNING' %}
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--yellow)">
+        <span class="live-dot" style="background:var(--yellow)"></span> Sync in progress…
+      </div>
+      {% elif s.status == 'FAILED' %}
+      <div style="font-size:11px;color:var(--red);word-break:break-word">{{ s.error or 'Sync failed' }}</div>
+      {% endif %}
+
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div style="text-align:center;padding:32px 16px;color:var(--text-muted)">
+    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.35;margin-bottom:10px;display:block;margin-inline:auto"><path d="M4 12a8 8 0 0116 0M12 4v4M20 12h-4"/><path d="M4 12a8 8 0 0016 0" stroke-dasharray="4 2"/></svg>
+    <div style="font-size:12px">No syncs yet.</div>
+    <div style="font-size:11px;margin-top:4px">Use <strong>New Session → Sync Bugs</strong><br>from the dashboard to fetch bugs.</div>
+  </div>
+  {% endif %}
+</div><!-- /#rpPlaceholder -->
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const _agents = {{ agents | tojson }};
+const _repos  = {{ repositories | tojson }};
+const _syncSources = {{ sync_sources | tojson }};
+
+function showRpPlaceholder() {
+  document.getElementById('rpPlaceholder').style.display = '';
+  document.getElementById('rpNewSession').style.display  = 'none';
+}
+function showRpNewSession() {
+  document.getElementById('rpPlaceholder').style.display = 'none';
+  document.getElementById('rpNewSession').style.display  = '';
+}
+function openNewSessionModal() { showRpNewSession(); }
+
+function nsTypeChanged() {
+  const t = document.getElementById('nsType').value;
+  document.getElementById('nsRepoGroup').style.display  = ['empty','fix-bug','fix-bugs'].includes(t) ? '' : 'none';
+  document.getElementById('nsBugGroup').style.display   = t === 'fix-bug'     ? '' : 'none';
+  document.getElementById('nsBugsGroup').style.display  = t === 'fix-bugs'    ? '' : 'none';
+  document.getElementById('nsSyncGroup').style.display  = t === 'sync-bugs'   ? '' : 'none';
+  document.getElementById('nsPrGroup').style.display    = t === 'code-review' ? '' : 'none';
+  const labels = { 'empty':'Create Session', 'list-bugs':'Start List Bugs', 'fix-bug':'Start Fix Bug', 'fix-bugs':'Start Fix Bugs', 'sync-bugs':'Sync Bugs', 'code-review':'Start Code Review' };
+  document.getElementById('nsSubmitBtn').textContent = labels[t] || 'Create Session';
+}
+
+function nsSyncSourceChanged() {
+  const selected = Array.from(document.querySelectorAll('.ns-src-cb:checked')).map(c => c.value);
+  const seen = {};
+  _syncSources.forEach(src => { if (selected.includes(src.id)) Object.keys(src.projects).forEach(k => seen[k] = true); });
+  const keys = Object.keys(seen);
+  const sel = document.getElementById('nsSyncProject');
+  const group = document.getElementById('nsSyncProjectGroup');
+  sel.innerHTML = '<option value="">— all projects —</option>';
+  if (keys.length && selected.length) {
+    keys.forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
+    group.style.display = '';
+  } else { group.style.display = 'none'; }
+}
+
+function showMsg(el, text, color) {
+  el.textContent = text;
+  el.style.color = color === 'red' ? 'var(--red)' : color === 'green' ? 'var(--green)' : 'var(--text-muted)';
+  el.style.display = '';
+}
+
+async function submitNewSessPanel(e) {
+  e.preventDefault();
+  const msg   = document.getElementById('nsMsgPanel');
+  const btn   = document.getElementById('nsSubmitBtn');
+  const type  = document.getElementById('nsType').value;
+  const agent = document.getElementById('nsAgent').value;
+  const repo  = document.getElementById('nsRepo').value || null;
+  btn.disabled = true;
+  msg.style.display = 'none';
+  try {
+    if (type === 'sync-bugs') {
+      const sources = Array.from(document.querySelectorAll('.ns-src-cb:checked')).map(c => c.value);
+      if (!sources.length) { showMsg(msg, 'Select at least one source.', 'red'); return; }
+      const project = document.getElementById('nsSyncProject').value || null;
+      const top = Math.min(100, Math.max(1, parseInt(document.getElementById('nsSyncTop').value, 10) || 10));
+      const res = await fetch('/api/bugs/sync', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ sources, project, top, agent }) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.sessions[0]}`;
+    } else if (type === 'fix-bugs') {
+      const raw = document.getElementById('nsBugIds').value;
+      const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+      if (!ids.length) { showMsg(msg, 'Enter at least one Bug ID.', 'red'); return; }
+      showMsg(msg, `Creating ${ids.length} session(s)…`, 'muted');
+      const repos = repo ? [repo] : [];
+      let firstId = null;
+      for (const bugId of ids) {
+        const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ repositories: repos, agent, bug_id: bugId, session_type: 'fix-bugs', start_command: `/fix-bug ${bugId}` }) });
+        const data = await res.json();
+        if (!res.ok) { showMsg(msg, `Error for ${bugId}: ` + (data.detail || res.statusText), 'red'); return; }
+        if (!firstId) firstId = data.session_id;
+      }
+      window.location.href = `/sessions/${firstId}`;
+    } else if (type === 'code-review') {
+      const prUrl = document.getElementById('nsPrUrl').value.trim();
+      if (!prUrl) { showMsg(msg, 'Enter a PR URL.', 'red'); return; }
+      const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ repositories: [], agent, session_type: 'code-review', start_command: `/code-review ${prUrl}` }) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.session_id}`;
+    } else {
+      const repos = repo ? [repo] : [];
+      const payload = { repositories: repos, agent, session_type: type };
+      if (type === 'fix-bug') {
+        const bugId = document.getElementById('nsBugId').value.trim();
+        if (!bugId) { showMsg(msg, 'Enter a Bug ID.', 'red'); return; }
+        payload.bug_id = bugId;
+        payload.start_command = `/fix-bug ${bugId}`;
+      } else if (type === 'list-bugs') {
+        payload.start_command = '/list-bugs';
+      }
+      const res = await fetch('/api/sessions', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!res.ok) { showMsg(msg, data.detail || res.statusText, 'red'); return; }
+      window.location.href = `/sessions/${data.session_id}`;
+    }
+  } catch(err) {
+    showMsg(msg, err.message, 'red');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function fixBug(bugId, repoId) {
+  const msg = document.getElementById('fixBugMsg');
+  msg.textContent = 'Creating session…';
+  msg.style.display = '';
+
+  const agent = (_agents.find(a => a.id === 'claude') || _agents[0] || {id:'claude'}).id;
+  const matchedRepo = _repos.find(r => r.id === repoId);
+  const repositories = matchedRepo ? [matchedRepo.id] : [];
+
+  try {
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ repositories, agent, bug_id: bugId, start_command: `/fix-bug ${bugId}` }),
+    });
+    const data = await res.json();
+    if (!res.ok) { msg.textContent = 'Error: ' + (data.detail || res.statusText); return; }
+    msg.textContent = 'Session created! Redirecting…';
+    window.location.href = `/sessions/${data.session_id}`;
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+}
+
+function closeBugSession(sessionId) { closeSessionWithConfirm(sessionId); }
+
+function bugSwitchTab(name, btn) {
+  document.querySelectorAll('.sess-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('bug-tab-' + name).style.display = '';
+  document.querySelectorAll('.sess-tab-filters').forEach(f => f.style.display = 'none');
+  const filters = document.getElementById('bug-filters-' + name);
+  if (filters) filters.style.display = '';
+}
+
+function bugFilter(tab, text, date) {
+  const q = text.trim().toLowerCase();
+  document.querySelectorAll('#tbl-' + tab + ' tbody tr').forEach(row => {
+    if (row.querySelector('.td-empty')) return;
+    const matchText = !q || (row.dataset.search || '').toLowerCase().includes(q);
+    const matchDate = !date || (row.dataset.date || '').startsWith(date);
+    row.style.display = (matchText && matchDate) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

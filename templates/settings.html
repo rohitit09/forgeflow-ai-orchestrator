@@ -1,0 +1,622 @@
+{% extends "base.html" %}
+{% block title %}Settings — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Settings{% endblock %}
+
+{% block content %}
+<div class="settings-page-header">
+  <h2 class="page-title">Settings</h2>
+  <p class="settings-subtitle">Skills, commands, agents, and repository configuration</p>
+</div>
+
+<!-- ── Tab Bar ── -->
+<div class="settings-tabs">
+  <button class="settings-tab active" data-tab="skills" onclick="settingsSwitchTab('skills', this)">
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,2 12.5,7.5 18,8.2 14,12 15.2,17.5 10,14.5 4.8,17.5 6,12 2,8.2 7.5,7.5"/></svg>
+    Skills
+    <span class="settings-tab-count">{{ skills | length }}</span>
+  </button>
+  <button class="settings-tab" data-tab="commands" onclick="settingsSwitchTab('commands', this)">
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4-4 4M10 14h6"/></svg>
+    Commands
+    <span class="settings-tab-count">{{ commands | length }}</span>
+  </button>
+  <button class="settings-tab" data-tab="coding-agents" onclick="settingsSwitchTab('coding-agents', this)">
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3.5"/><path d="M3 18c0-3.9 3.1-7 7-7s7 3.1 7 7"/><path d="M7 3.5C7.5 2.5 8.7 2 10 2s2.5.5 3 1.5"/></svg>
+    Coding Agents
+    <span class="settings-tab-count">{{ coding_agents | length }}</span>
+  </button>
+  <button class="settings-tab" data-tab="agents" onclick="settingsSwitchTab('agents', this)">
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="M7 8h6M7 11h4"/><circle cx="15" cy="4" r="2" fill="currentColor" stroke="none"/></svg>
+    Agents
+    <span class="settings-tab-count">{{ agents | length }}</span>
+  </button>
+  <button class="settings-tab" data-tab="repositories" onclick="settingsSwitchTab('repositories', this)">
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M3 8h14"/><path d="M8 3v5"/></svg>
+    Repositories
+    <span class="settings-tab-count">{{ repositories | length }}</span>
+  </button>
+</div>
+
+<!-- ── Skills Tab ── -->
+<div id="settings-tab-skills" class="tab-panel settings-panel" style="display:block">
+  {% if not skills %}
+  <div class="empty-state">
+    <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><polygon points="32,4 39,22 58,24 44,38 48,57 32,47 16,57 20,38 6,24 25,22"/></svg>
+    <p>No skills found in <code>skills/*/SKILL.md</code></p>
+  </div>
+  {% else %}
+  <div class="settings-split">
+    <div class="settings-list-col">
+      <div class="settings-list-search-wrap">
+        <svg class="settings-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="5"/><path d="M13 13l4 4"/></svg>
+        <input class="settings-search-input" type="text" placeholder="Search skills…" oninput="filterItems('skill', this.value)" id="skills-search">
+      </div>
+      <div id="skills-items">
+        {% for skill in skills %}
+        <div class="settings-item" id="skill-row-{{ skill.id }}" onclick="selectSkill('{{ skill.id }}')" data-name="{{ skill.name | lower }}" data-id="{{ skill.id | lower }}" data-desc="{{ (skill.description or '') | lower }}">
+          <div class="settings-item-icon settings-icon-skill">
+            <svg viewBox="0 0 20 20" width="13" height="13"><polygon points="10,2 12.5,7.5 18,8.2 14,12 15.2,17.5 10,14.5 4.8,17.5 6,12 2,8.2 7.5,7.5" fill="currentColor"/></svg>
+          </div>
+          <div class="settings-item-body">
+            <div class="settings-item-name">{{ skill.name }}</div>
+            <div class="settings-item-sub"><code>/{{ skill.id }}</code></div>
+            {% if skill.description %}
+            <div class="settings-item-desc">{{ skill.description }}</div>
+            {% endif %}
+          </div>
+          <svg class="settings-item-chevron" viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="settings-list-empty" id="skills-empty" style="display:none">No matching skills</div>
+    </div>
+    <div class="settings-viewer-col" id="skillsViewer">
+      <div class="settings-viewer-placeholder">
+        <svg viewBox="0 0 64 64" width="40" height="40" opacity=".2"><polygon points="32,4 39,22 58,24 44,38 48,57 32,47 16,57 20,38 6,24 25,22"/></svg>
+        <p>Select a skill to view its documentation</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Commands Tab ── -->
+<div id="settings-tab-commands" class="tab-panel settings-panel" style="display:none">
+  {% if not commands %}
+  <div class="empty-state">
+    <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><path d="M8 16h48M8 32h32M8 48h20"/><rect x="6" y="8" width="52" height="48" rx="4" fill="none" stroke="currentColor" stroke-width="4"/></svg>
+    <p>No commands found in <code>commands/*.md</code></p>
+  </div>
+  {% else %}
+  <div class="settings-split">
+    <div class="settings-list-col">
+      <div class="settings-list-search-wrap">
+        <svg class="settings-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="5"/><path d="M13 13l4 4"/></svg>
+        <input class="settings-search-input" type="text" placeholder="Search commands…" oninput="filterItems('cmd', this.value)" id="commands-search">
+      </div>
+      <div id="commands-items">
+        {% for cmd in commands %}
+        <div class="settings-item" id="cmd-row-{{ cmd.id }}" onclick="selectCommand('{{ cmd.id }}')" data-name="{{ cmd.name | lower }}" data-id="{{ cmd.id | lower }}" data-desc="{{ (cmd.description or '') | lower }}">
+          <div class="settings-item-icon settings-icon-cmd">
+            <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4-4 4M10 14h6"/></svg>
+          </div>
+          <div class="settings-item-body">
+            <div class="settings-item-name">{{ cmd.name }}</div>
+            <div class="settings-item-sub"><code>/{{ cmd.id }}</code>{% if cmd.argument_hint %} <span class="settings-arg-hint">{{ cmd.argument_hint }}</span>{% endif %}</div>
+            {% if cmd.description %}
+            <div class="settings-item-desc">{{ cmd.description }}</div>
+            {% endif %}
+          </div>
+          <svg class="settings-item-chevron" viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="settings-list-empty" id="commands-empty" style="display:none">No matching commands</div>
+    </div>
+    <div class="settings-viewer-col" id="commandsViewer">
+      <div class="settings-viewer-placeholder">
+        <svg viewBox="0 0 20 20" width="40" height="40" opacity=".2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4-4 4M10 14h6"/></svg>
+        <p>Select a command to view its documentation</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Coding Agents Tab ── -->
+<div id="settings-tab-coding-agents" class="tab-panel settings-panel" style="display:none">
+  {% if not coding_agents %}
+  <div class="empty-state">
+    <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><circle cx="32" cy="22" r="14"/><path d="M8 56c0-13.3 10.7-24 24-24s24 10.7 24 24"/></svg>
+    <p>No agents found in <code>agents/*.md</code></p>
+  </div>
+  {% else %}
+  <div class="settings-split">
+    <div class="settings-list-col">
+      <div class="settings-list-search-wrap">
+        <svg class="settings-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="5"/><path d="M13 13l4 4"/></svg>
+        <input class="settings-search-input" type="text" placeholder="Search agents…" oninput="filterItems('cagent', this.value)" id="cagents-search">
+      </div>
+      <div id="cagents-items">
+        {% for agent in coding_agents %}
+        <div class="settings-item" id="cagent-row-{{ agent.id }}" onclick="selectCodingAgent('{{ agent.id }}')" data-name="{{ agent.name | lower }}" data-id="{{ agent.id | lower }}" data-desc="{{ (agent.description or '') | lower }}">
+          <div class="settings-item-icon settings-icon-agent">
+            <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3.5"/><path d="M3 18c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>
+          </div>
+          <div class="settings-item-body">
+            <div class="settings-item-name">{{ agent.name }}</div>
+            <div class="settings-item-sub"><code>{{ agent.id }}</code></div>
+            {% if agent.description %}
+            <div class="settings-item-desc">{{ agent.description }}</div>
+            {% endif %}
+          </div>
+          <svg class="settings-item-chevron" viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 5l5 5-5 5"/></svg>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="settings-list-empty" id="cagents-empty" style="display:none">No matching agents</div>
+    </div>
+    <div class="settings-viewer-col" id="codingAgentsViewer">
+      <div class="settings-viewer-placeholder">
+        <svg viewBox="0 0 20 20" width="40" height="40" opacity=".2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3.5"/><path d="M3 18c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>
+        <p>Select an agent to view its documentation</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Agents Tab ── -->
+<div id="settings-tab-agents" class="tab-panel settings-panel" style="display:none">
+  {% if not agents %}
+  <div class="empty-state">
+    <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><circle cx="32" cy="22" r="14"/><path d="M8 56c0-13.3 10.7-24 24-24s24 10.7 24 24"/></svg>
+    <p>No agents configured in <code>config/agents.json</code></p>
+  </div>
+  {% else %}
+  <div class="agent-cards-grid">
+    {% for agent in agents %}
+    {% set skip_keys = ['id', 'name', 'description', 'model', 'provider', 'capabilities', 'command'] %}
+    <div class="agent-info-card">
+      <div class="agent-info-header">
+        <div class="agent-info-avatar">{{ agent.name[0] | upper }}</div>
+        <div class="agent-info-meta">
+          <div class="agent-info-name">{{ agent.name }}</div>
+          <div class="agent-info-id">{{ agent.id }}</div>
+        </div>
+        <div class="agent-info-badges">
+          <span class="settings-badge settings-badge-green">Active</span>
+          {% if agent.provider %}<span class="settings-badge settings-badge-blue">{{ agent.provider }}</span>{% endif %}
+        </div>
+      </div>
+      {% if agent.description %}
+      <div class="agent-info-desc">{{ agent.description }}</div>
+      {% endif %}
+      <div class="agent-info-body">
+        {% if agent.model %}
+        <div class="agent-info-row">
+          <span class="agent-info-label">Model</span>
+          <span class="agent-info-val"><span class="branch-badge">{{ agent.model }}</span></span>
+        </div>
+        {% endif %}
+        <div class="agent-info-row">
+          <span class="agent-info-label">Command</span>
+          <span class="agent-info-val agent-info-mono">{{ agent.command }}</span>
+        </div>
+        {% if agent.capabilities %}
+        <div class="agent-info-row">
+          <span class="agent-info-label">Capabilities</span>
+          <span class="agent-info-val agent-info-caps">
+            {% for cap in agent.capabilities %}<span class="cap-badge">{{ cap }}</span>{% endfor %}
+          </span>
+        </div>
+        {% endif %}
+        {% for key, val in agent.items() %}
+          {% if key not in skip_keys and val is not none and val != '' %}
+          <div class="agent-info-row">
+            <span class="agent-info-label">{{ key | replace('_', ' ') | title }}</span>
+            <span class="agent-info-val">
+              {% if val is mapping %}
+                {% for k2, v2 in val.items() %}<span class="dep-badge">{{ k2 }}: {{ v2 }}</span> {% endfor %}
+              {% elif val is iterable and val is not string %}
+                {% for item in val %}<span class="dep-badge">{{ item }}</span> {% endfor %}
+              {% else %}{{ val }}{% endif %}
+            </span>
+          </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Repositories Tab ── -->
+<div id="settings-tab-repositories" class="tab-panel settings-panel" style="display:none">
+  {% if not repositories %}
+  <div class="empty-state">
+    <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><path d="M8 8h48v48H8z"/><path d="M24 8v48M8 24h48"/></svg>
+    <p>No repositories configured in <code>config/repositories.json</code></p>
+  </div>
+  {% else %}
+  <div class="repo-cards">
+    {% for repo in repositories %}
+    <div class="repo-card">
+      <div class="repo-card-header">
+        <div class="repo-card-title">
+          <span class="repo-name">{{ repo.name }}</span>
+          <span class="badge badge-{{ repo.type }}">{{ repo.type }}</span>
+        </div>
+        <span class="repo-card-id">{{ repo.id }}</span>
+      </div>
+      <div class="repo-card-body">
+        <div class="repo-meta-row">
+          <span class="repo-meta-label">Git URL</span>
+          <span class="repo-meta-value mono">{{ repo.git_url or '—' }}</span>
+        </div>
+        <div class="repo-meta-row">
+          <span class="repo-meta-label">Base Branch</span>
+          <span class="repo-meta-value"><span class="branch-badge">{{ repo.base_branch or 'main' }}</span></span>
+        </div>
+        <div class="repo-meta-row">
+          <span class="repo-meta-label">Local Path</span>
+          <span class="repo-meta-value mono small">{{ repo.path or '—' }}</span>
+        </div>
+        {% if repo.protected_branches %}
+        <div class="repo-meta-row">
+          <span class="repo-meta-label">Protected</span>
+          <span class="repo-meta-value">
+            {% for b in repo.protected_branches %}<span class="branch-badge branch-badge-protected">{{ b }}</span> {% endfor %}
+          </span>
+        </div>
+        {% endif %}
+        {% if repo.dependent_repos %}
+        <div class="repo-meta-row">
+          <span class="repo-meta-label">Depends On</span>
+          <span class="repo-meta-value">
+            {% for dep in repo.dependent_repos %}<span class="dep-badge">{{ dep }}</span> {% endfor %}
+          </span>
+        </div>
+        {% endif %}
+        {% set rt = repo.runtime %}
+        {% if rt and (rt.language or rt.framework or rt.test_command) %}
+        <div class="repo-runtime">
+          <div class="repo-runtime-title">Runtime</div>
+          <div class="repo-runtime-grid">
+            {% if rt.language %}<div class="rt-item"><span class="rt-label">Language</span><span class="rt-val">{{ rt.language }}</span></div>{% endif %}
+            {% if rt.framework %}<div class="rt-item"><span class="rt-label">Framework</span><span class="rt-val">{{ rt.framework }}</span></div>{% endif %}
+            {% if rt.test_command %}<div class="rt-item rt-item-full"><span class="rt-label">Test Command</span><span class="rt-val mono">{{ rt.test_command }}</span></div>{% endif %}
+            {% if rt.activate %}<div class="rt-item rt-item-full"><span class="rt-label">Activate</span><span class="rt-val mono">{{ rt.activate }}</span></div>{% endif %}
+          </div>
+        </div>
+        {% endif %}
+        {% if repo.dependency_evidence %}
+        <div class="repo-runtime" style="margin-top:8px">
+          <div class="repo-runtime-title">Dependency Evidence</div>
+          {% for dep_id, evidence in repo.dependency_evidence.items() %}
+          <div class="repo-meta-row">
+            <span class="repo-meta-label">{{ dep_id }}</span>
+            <span class="repo-meta-value small">{{ evidence }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block right_panel %}
+<div class="rp-empty">
+  <svg viewBox="0 0 64 64" width="40" height="40" opacity=".3"><path d="M32 8a24 24 0 100 48 24 24 0 000-48zm0 6a18 18 0 110 36 18 18 0 010-36z"/><path d="M32 20v12l8 4"/></svg>
+  <p>Configure skills, agents, and<br>repositories for the orchestrator</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SKILLS = {{ skills | tojson }};
+const SKILLS_BY_ID = Object.fromEntries(SKILLS.map(s => [s.id, s]));
+let activeSkillId = null;
+
+const COMMANDS = {{ commands | tojson }};
+const COMMANDS_BY_ID = Object.fromEntries(COMMANDS.map(c => [c.id, c]));
+let activeCommandId = null;
+
+const CODING_AGENTS = {{ coding_agents | tojson }};
+const CODING_AGENTS_BY_ID = Object.fromEntries(CODING_AGENTS.map(a => [a.id, a]));
+let activeCodingAgentId = null;
+
+/* ── Tab switching ── */
+function settingsSwitchTab(name, btn) {
+  document.querySelectorAll('.settings-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('settings-tab-' + name).style.display = '';
+}
+
+/* ── Search / filter ── */
+function filterItems(prefix, query) {
+  const q = query.toLowerCase().trim();
+  const container = document.getElementById(prefix === 'skill' ? 'skills-items' : prefix === 'cmd' ? 'commands-items' : 'cagents-items');
+  const emptyEl = document.getElementById(prefix === 'skill' ? 'skills-empty' : prefix === 'cmd' ? 'commands-empty' : 'cagents-empty');
+  const items = container.querySelectorAll('.settings-item');
+  let visible = 0;
+  items.forEach(el => {
+    const match = !q
+      || el.dataset.name.includes(q)
+      || el.dataset.id.includes(q)
+      || el.dataset.desc.includes(q);
+    el.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  emptyEl.style.display = visible === 0 ? '' : 'none';
+}
+
+/* ── Markdown renderer ── */
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function parseInline(raw) {
+  const s = escHtml(raw);
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  let html = '';
+  let inFence = false;
+  let fenceLang = '';
+  let fenceLines = [];
+  let inList = false;
+  let listType = 'ul';
+  let listItems = [];
+  let inBlockquote = false;
+  let bqLines = [];
+
+  function flushList() {
+    if (!listItems.length) return;
+    const tag = listType === 'ol' ? 'ol' : 'ul';
+    html += `<${tag}>${listItems.map(i => `<li>${i}</li>`).join('')}</${tag}>`;
+    listItems = [];
+    inList = false;
+  }
+  function flushBq() {
+    if (!bqLines.length) return;
+    html += `<blockquote>${bqLines.join('<br>')}</blockquote>`;
+    bqLines = [];
+    inBlockquote = false;
+  }
+
+  for (const line of lines) {
+    // Fenced code block
+    if (!inFence && /^```/.test(line)) {
+      flushList(); flushBq();
+      inFence = true;
+      fenceLang = line.slice(3).trim() || 'text';
+      fenceLines = [];
+      continue;
+    }
+    if (inFence) {
+      if (/^```/.test(line)) {
+        const langClass = fenceLang ? ` class="lang-${escHtml(fenceLang)}"` : '';
+        html += `<div class="md-code-block"><div class="md-code-lang">${escHtml(fenceLang)}</div><pre><code${langClass}>${fenceLines.join('\n')}</code></pre></div>`;
+        inFence = false; fenceLang = ''; fenceLines = [];
+      } else {
+        fenceLines.push(escHtml(line));
+      }
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^(---+|\*\*\*+|___+)\s*$/.test(line)) {
+      flushList(); flushBq();
+      html += '<hr>';
+      continue;
+    }
+
+    // Headers
+    const h3 = line.match(/^### (.+)/);
+    const h2 = line.match(/^## (.+)/);
+    const h1 = line.match(/^# (.+)/);
+    if (h1) { flushList(); flushBq(); html += `<h1>${parseInline(h1[1])}</h1>`; continue; }
+    if (h2) { flushList(); flushBq(); html += `<h2>${parseInline(h2[1])}</h2>`; continue; }
+    if (h3) { flushList(); flushBq(); html += `<h3>${parseInline(h3[1])}</h3>`; continue; }
+
+    // Blockquote
+    if (/^> /.test(line)) {
+      flushList();
+      inBlockquote = true;
+      bqLines.push(parseInline(line.slice(2)));
+      continue;
+    } else if (inBlockquote) {
+      flushBq();
+    }
+
+    // Ordered list
+    const olMatch = line.match(/^\d+\. (.+)/);
+    if (olMatch) {
+      if (!inList || listType !== 'ol') { flushList(); inList = true; listType = 'ol'; }
+      listItems.push(parseInline(olMatch[1]));
+      continue;
+    }
+
+    // Unordered list
+    const ulMatch = line.match(/^[-*+] (.+)/);
+    if (ulMatch) {
+      if (!inList || listType !== 'ul') { flushList(); inList = true; listType = 'ul'; }
+      listItems.push(parseInline(ulMatch[1]));
+      continue;
+    }
+
+    // Blank line
+    if (line.trim() === '') {
+      flushList(); flushBq();
+      html += '<div class="md-spacer"></div>';
+      continue;
+    }
+
+    // Paragraph
+    flushList(); flushBq();
+    html += `<p>${parseInline(line)}</p>`;
+  }
+
+  flushList(); flushBq();
+  return html;
+}
+
+/* ── Shared viewer builder ── */
+function buildViewerHtml(opts) {
+  const { name, command, commandPrefix = '/', description, tools, extraBadges = [], content } = opts;
+  const cmdDisplay = `${commandPrefix}${escHtml(command)}`;
+
+  const badges = extraBadges.map(b =>
+    `<span class="settings-badge settings-badge-${b.color || 'gray'}">${escHtml(b.label)}</span>`
+  ).join('');
+
+  const toolsHtml = tools
+    ? `<div class="sv-tools">
+        <span class="sv-tools-label">Tools</span>
+        <span class="sv-tools-val">${escHtml(tools)}</span>
+       </div>`
+    : '';
+
+  const descHtml = description
+    ? `<div class="sv-desc">${escHtml(description)}</div>`
+    : '';
+
+  const mdHtml = renderMarkdown(content || '');
+
+  return `
+    <div class="sv-header">
+      <div class="sv-header-top">
+        <div class="sv-header-left">
+          <div class="sv-name">${escHtml(name)}</div>
+          <div class="sv-cmd"><code>${cmdDisplay}</code></div>
+        </div>
+        <div class="sv-header-actions">
+          ${badges}
+          <button class="sv-copy-btn" onclick="copyToClipboard('${commandPrefix}${escHtml(command)}', this)" title="Copy command">
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M13 7V4a1 1 0 00-1-1H4a1 1 0 00-1 1v8a1 1 0 001 1h3"/></svg>
+            Copy
+          </button>
+        </div>
+      </div>
+      ${descHtml}
+      ${toolsHtml}
+    </div>
+    <div class="sv-body">
+      <div class="sv-md">${mdHtml}</div>
+    </div>
+  `;
+}
+
+/* ── Select handlers ── */
+function selectSkill(id) {
+  const skill = SKILLS_BY_ID[id];
+  if (!skill) return;
+  if (activeSkillId) document.getElementById('skill-row-' + activeSkillId)?.classList.remove('active');
+  activeSkillId = id;
+  document.getElementById('skill-row-' + id)?.classList.add('active');
+  document.getElementById('skillsViewer').innerHTML = buildViewerHtml({
+    name: skill.name,
+    command: skill.id,
+    commandPrefix: '/',
+    description: skill.description,
+    content: skill.content
+  });
+}
+
+function selectCommand(id) {
+  const cmd = COMMANDS_BY_ID[id];
+  if (!cmd) return;
+  if (activeCommandId) document.getElementById('cmd-row-' + activeCommandId)?.classList.remove('active');
+  activeCommandId = id;
+  document.getElementById('cmd-row-' + id)?.classList.add('active');
+  document.getElementById('commandsViewer').innerHTML = buildViewerHtml({
+    name: cmd.name,
+    command: cmd.argument_hint ? `${cmd.id} ${cmd.argument_hint}` : cmd.id,
+    commandPrefix: '/',
+    description: cmd.description,
+    content: cmd.content
+  });
+}
+
+function selectCodingAgent(id) {
+  const agent = CODING_AGENTS_BY_ID[id];
+  if (!agent) return;
+  if (activeCodingAgentId) document.getElementById('cagent-row-' + activeCodingAgentId)?.classList.remove('active');
+  activeCodingAgentId = id;
+  document.getElementById('cagent-row-' + id)?.classList.add('active');
+  document.getElementById('codingAgentsViewer').innerHTML = buildViewerHtml({
+    name: agent.name,
+    command: agent.id,
+    commandPrefix: '',
+    description: agent.description,
+    tools: agent.tools,
+    content: agent.content
+  });
+}
+
+/* ── Copy to clipboard ── */
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.classList.add('sv-copy-ok');
+    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 10l5 5 7-8"/></svg> Copied`;
+    setTimeout(() => {
+      btn.classList.remove('sv-copy-ok');
+      btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M13 7V4a1 1 0 00-1-1H4a1 1 0 00-1 1v8a1 1 0 001 1h3"/></svg> Copy`;
+    }, 2000);
+  });
+}
+
+/* ── Keyboard navigation ── */
+function handleListKeydown(e, items, activeId, selectFn) {
+  const visible = [...items].filter(el => el.style.display !== 'none');
+  const currentIdx = activeId ? visible.findIndex(el => el.id.endsWith(activeId)) : -1;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const next = visible[Math.min(currentIdx + 1, visible.length - 1)];
+    if (next) next.click();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const prev = visible[Math.max(currentIdx - 1, 0)];
+    if (prev) prev.click();
+  }
+}
+
+document.getElementById('skills-search')?.addEventListener('keydown', e => {
+  handleListKeydown(e, document.querySelectorAll('#skills-items .settings-item'), activeSkillId, selectSkill);
+});
+document.getElementById('commands-search')?.addEventListener('keydown', e => {
+  handleListKeydown(e, document.querySelectorAll('#commands-items .settings-item'), activeCommandId, selectCommand);
+});
+document.getElementById('cagents-search')?.addEventListener('keydown', e => {
+  handleListKeydown(e, document.querySelectorAll('#cagents-items .settings-item'), activeCodingAgentId, selectCodingAgent);
+});
+
+/* ── Auto-select first items ── */
+if (SKILLS.length) selectSkill(SKILLS[0].id);
+if (COMMANDS.length) selectCommand(COMMANDS[0].id);
+if (CODING_AGENTS.length) selectCodingAgent(CODING_AGENTS[0].id);
+
+/* ── URL ?tab= param ── */
+const _tab = new URLSearchParams(location.search).get('tab');
+if (_tab) {
+  const btn = [...document.querySelectorAll('.settings-tab')].find(b => b.dataset.tab === _tab || b.textContent.trim().toLowerCase().startsWith(_tab));
+  if (btn) btn.click();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Repositories — AI Orchestrator{% endblock %}
+{% block breadcrumb %}Repositories{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Repositories</h2>
+  <span class="page-subtitle">{{ repositories | length }} configured</span>
+</div>
+
+{% if not repositories %}
+<div class="empty-state">
+  <svg viewBox="0 0 64 64" width="48" height="48" opacity=".3"><path d="M8 8h48v48H8z"/><path d="M24 8v48M8 24h48"/></svg>
+  <p>No repositories configured in <code>config/repositories.json</code></p>
+</div>
+{% else %}
+<div class="repo-cards">
+  {% for repo in repositories %}
+  <div class="repo-card">
+    <div class="repo-card-header">
+      <div class="repo-card-title">
+        <span class="repo-name">{{ repo.name }}</span>
+        <span class="badge badge-{{ repo.type }}">{{ repo.type }}</span>
+      </div>
+      <span class="repo-card-id">{{ repo.id }}</span>
+    </div>
+
+    <div class="repo-card-body">
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Git URL</span>
+        <span class="repo-meta-value mono">{{ repo.git_url or '—' }}</span>
+      </div>
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Base Branch</span>
+        <span class="repo-meta-value"><span class="branch-badge">{{ repo.base_branch or 'main' }}</span></span>
+      </div>
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Local Path</span>
+        <span class="repo-meta-value mono small">{{ repo.path or '—' }}</span>
+      </div>
+      {% if repo.protected_branches %}
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Protected</span>
+        <span class="repo-meta-value">
+          {% for b in repo.protected_branches %}<span class="branch-badge branch-badge-protected">{{ b }}</span> {% endfor %}
+        </span>
+      </div>
+      {% endif %}
+      {% if repo.dependent_repos %}
+      <div class="repo-meta-row">
+        <span class="repo-meta-label">Depends On</span>
+        <span class="repo-meta-value">
+          {% for dep in repo.dependent_repos %}<span class="dep-badge">{{ dep }}</span> {% endfor %}
+        </span>
+      </div>
+      {% endif %}
+
+      {% set rt = repo.runtime %}
+      {% if rt and (rt.language or rt.framework or rt.test_command) %}
+      <div class="repo-runtime">
+        <div class="repo-runtime-title">Runtime</div>
+        <div class="repo-runtime-grid">
+          {% if rt.language %}<div class="rt-item"><span class="rt-label">Language</span><span class="rt-val">{{ rt.language }}</span></div>{% endif %}
+          {% if rt.framework %}<div class="rt-item"><span class="rt-label">Framework</span><span class="rt-val">{{ rt.framework }}</span></div>{% endif %}
+          {% if rt.test_command %}<div class="rt-item rt-item-full"><span class="rt-label">Test Command</span><span class="rt-val mono">{{ rt.test_command }}</span></div>{% endif %}
+          {% if rt.activate %}<div class="rt-item rt-item-full"><span class="rt-label">Activate</span><span class="rt-val mono">{{ rt.activate }}</span></div>{% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if repo.dependency_evidence %}
+      <div class="repo-runtime" style="margin-top:8px">
+        <div class="repo-runtime-title">Dependency Evidence</div>
+        {% for dep_id, evidence in repo.dependency_evidence.items() %}
+        <div class="repo-meta-row">
+          <span class="repo-meta-label">{{ dep_id }}</span>
+          <span class="repo-meta-value small">{{ evidence }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block right_panel %}
+<div class="rp-empty">
+  <svg viewBox="0 0 64 64" width="40" height="40" opacity=".3"><path d="M8 8h48v48H8z"/><path d="M24 8v48M8 24h48"/></svg>
+  <p>Repository configuration is managed in<br><code>config/repositories.json</code></p>
+</div>
+{% endblock %}
